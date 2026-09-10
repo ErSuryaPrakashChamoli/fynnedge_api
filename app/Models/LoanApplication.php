@@ -79,9 +79,20 @@ class LoanApplication extends Model
      *
      * Distinct from the application's own status: this says what an external
      * provider did, and that one says what the customer did in FynnEdge.
+     *
+     * Answered from the loaded relation when there is one. Without that
+     * check this issues a query every time it is called, which turns any
+     * caller holding a collection into an N+1 — and several do: the
+     * intelligence rules ask it of every application, twice over, and each
+     * of those asks was a round trip even though the submissions had just
+     * been eager-loaded beside them.
      */
     public function latestSubmission(): ?ApplicationSubmission
     {
+        if ($this->relationLoaded('submissions')) {
+            return $this->submissions->sortByDesc('attempt')->first();
+        }
+
         return $this->submissions()->orderByDesc('attempt')->first();
     }
 

@@ -3,6 +3,9 @@
 namespace Tests\Feature\Api;
 
 use App\Domain\Financial\FinancialEngine;
+use App\Models\DecisionContext;
+use App\Models\FinancialMoment;
+use App\Models\FinancialObservation;
 use App\Models\LoanApplication;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -221,17 +224,36 @@ class FynnTwinTest extends TestCase
 
     // --- What it must never do ----------------------------------------------
 
-    public function test_a_simulation_writes_nothing(): void
+    /**
+     * A simulation changes nothing about the customer.
+     *
+     * This asserted zero writes of any kind until Module 32, which records
+     * that the customer explored something. That record is a different kind
+     * of thing: it says they ran a simulation, not that anything about
+     * their money changed — and the guarantee worth keeping was always the
+     * second one.
+     *
+     * So the test now names what must not happen rather than counting
+     * statements, which is stronger: a future write that changed a profile
+     * would pass a statement count set to 1 and fails this.
+     */
+    public function test_a_simulation_changes_nothing_about_the_customer(): void
     {
         $user = $this->customer();
         $before = $user->financialProfile->only([
             'monthly_income', 'monthly_expenses', 'existing_emi', 'savings',
         ]);
 
-        $queries = 0;
-        DB::listen(function ($query) use (&$queries) {
-            if (preg_match('/^\s*(insert|update|delete)/i', $query->sql)) {
-                $queries++;
+        $touched = [];
+        DB::listen(function ($query) use (&$touched) {
+            // `insert or ignore into "x"` as well as `insert into "x"`,
+            // `update "x"` and `delete from "x"`.
+            if (preg_match(
+                '/^\s*(?:insert(?:\s+or\s+\w+)?\s+into|update|delete\s+from)\s+"?(\w+)"?/i',
+                $query->sql,
+                $m,
+            )) {
+                $touched[] = strtolower($m[1]);
             }
         });
 
@@ -239,8 +261,19 @@ class FynnTwinTest extends TestCase
         $this->simulate(['type' => 'expense_change', 'monthly_change' => 5000])
             ->assertOk();
 
-        // Two simulations, no writes of any kind.
-        $this->assertSame(0, $queries);
+        /*
+         * The only table a simulation may touch.
+         *
+         * Not the profile, not observations, not moments, not applications,
+         * not the score — a what-if is true of nothing that has happened,
+         * and none of those records a what-if.
+         */
+        $this->assertSame(
+            ['decision_contexts'],
+            array_values(array_unique($touched)),
+            'a simulation wrote somewhere it must not: '
+            .implode(', ', array_unique($touched)),
+        );
 
         $this->assertSame(
             $before,
@@ -249,8 +282,25 @@ class FynnTwinTest extends TestCase
             ]),
         );
 
-        // And in particular, no application was created.
+        // And in particular, none of these.
         $this->assertSame(0, LoanApplication::count());
+        $this->assertSame(0, FinancialObservation::count());
+        $this->assertSame(0, FinancialMoment::count());
+    }
+
+    public function test_a_recorded_simulation_stays_a_simulation(): void
+    {
+        $this->customer();
+
+        $this->loan()->assertOk();
+
+        $decision = DecisionContext::firstOrFail();
+
+        // Recorded as a simulation, and nothing about it is presented as
+        // something that happened to the customer's money.
+        $this->assertSame('simulation', $decision->type);
+        $this->assertSame(0, FinancialObservation::count());
+        $this->assertSame(0, FinancialMoment::count());
     }
 
     public function test_the_same_scenario_gives_the_same_projection(): void

@@ -5,9 +5,11 @@ namespace App\Domain\Notifications;
 use App\Domain\Lender\SubmissionOutcome;
 use App\Domain\ProviderEvents\ProviderEventType;
 use App\Domain\Score\ScoreBand;
+use App\Domain\Support\SupportCaseStatus;
 use App\Models\Document;
 use App\Models\FinancialGoal;
 use App\Models\LoanApplication;
+use App\Models\SupportCase;
 
 /**
  * Whether a thing that happened is a thing to tell a customer, and what to
@@ -394,6 +396,59 @@ final class NotificationPolicy
         }
 
         return $reached;
+    }
+
+    // --- Support ----------------------------------------------------------
+
+    /**
+     * A support request moved, and the customer needs to know.
+     *
+     * Two states out of six. `waiting_for_customer`, because a request that
+     * needs them and does not say so simply stalls; and `resolved`, because
+     * they asked a question and the answer arriving is the point.
+     *
+     * Everything else returns null. A case being acknowledged is FynnEdge
+     * confirming something the customer watched happen; a case moving to
+     * `in_progress` is internal movement. Neither is an event in their life,
+     * and a notification for each would turn the notification centre into a
+     * log of somebody else's workflow.
+     *
+     * Nothing the customer wrote travels. The subject is their own words
+     * about their own money, and a notification is read on a lock screen.
+     */
+    public function supportCaseMoved(
+        SupportCase $case,
+        SupportCaseStatus $from,
+    ): ?NotificationDecision {
+        $to = $case->status();
+        $link = DeepLink::supportCase($case->getKey());
+
+        // The transition, not the destination: a case that is already
+        // resolved and gets re-saved has not resolved twice.
+        $key = 'support:'.$case->getKey().':'.$from->value.'->'.$to->value;
+
+        return match ($to) {
+            SupportCaseStatus::WaitingForCustomer => NotificationDecision::of(
+                type: NotificationType::SupportWaitingForCustomer,
+                title: 'Your help request needs you',
+                body: 'We need some information before we can continue with '
+                    .'request '.$case->reference.'. Open it to see what we '
+                    .'have asked.',
+                idempotencyKey: $key,
+                deepLink: $link,
+            ),
+
+            SupportCaseStatus::Resolved => NotificationDecision::of(
+                type: NotificationType::SupportResolved,
+                title: 'Your help request has been resolved',
+                body: 'Request '.$case->reference.' has been resolved. Open '
+                    .'it to see what we found.',
+                idempotencyKey: $key,
+                deepLink: $link,
+            ),
+
+            default => null,
+        };
     }
 
     // --- Shared -----------------------------------------------------------

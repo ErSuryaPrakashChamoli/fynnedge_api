@@ -296,7 +296,7 @@ class MockProductRepository implements ProductRepository
                 'product_code' => 'sme_term',
                 'lender' => 'United Credit Bank',
                 'name' => 'SME Term Loan',
-                'lender_tag' => 'Lowest rate in this set',
+                'lender_tag' => 'Lowest business rate in this set',
                 'category' => 'business',
                 'min_amount' => 1000000,
                 'max_amount' => 7500000,

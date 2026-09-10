@@ -40,6 +40,7 @@ final class DeepLink
         '#^fynnedge://fynn-score$#',
         '#^fynnedge://goals$#',
         '#^fynnedge://support$#',
+        '#^fynnedge://support/cases/[1-9][0-9]{0,17}$#',
     ];
 
     public static function applications(): string
@@ -78,6 +79,19 @@ final class DeepLink
         return self::SCHEME.'support';
     }
 
+    /**
+     * One support request.
+     *
+     * By id, not by reference. The reference is what a customer reads and
+     * quotes; the link is what the router resolves, and every other link in
+     * this contract is an id, so a second identifier shape here would be a
+     * second thing to validate.
+     */
+    public static function supportCase(int|string $id): string
+    {
+        return self::SCHEME.'support/cases/'.$id;
+    }
+
     /** Whether a string is a link this contract recognises. */
     public static function isValid(?string $link): bool
     {
@@ -92,15 +106,5 @@ final class DeepLink
         }
 
         return false;
-    }
-
-    /**
-     * Every shape, for tests and for the Flutter mirror.
-     *
-     * @return list<string>
-     */
-    public static function shapes(): array
-    {
-        return self::SHAPES;
     }
 }

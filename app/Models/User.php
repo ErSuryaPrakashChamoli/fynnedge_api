@@ -87,6 +87,30 @@ class User extends Authenticatable
         return $this->hasMany(NotificationWatermark::class);
     }
 
+    /** Financial decisions this customer explored. */
+    public function decisionContexts(): HasMany
+    {
+        return $this->hasMany(DecisionContext::class);
+    }
+
+    /** What has happened in this customer's financial life. */
+    public function financialMoments(): HasMany
+    {
+        return $this->hasMany(FinancialMoment::class);
+    }
+
+    /** What was true about their money, at the moments FynnEdge looked. */
+    public function financialObservations(): HasMany
+    {
+        return $this->hasMany(FinancialObservation::class);
+    }
+
+    /** Requests this customer has made for help. */
+    public function supportCases(): HasMany
+    {
+        return $this->hasMany(SupportCase::class);
+    }
+
     public function notificationPreference(): HasOne
     {
         return $this->hasOne(NotificationPreference::class);

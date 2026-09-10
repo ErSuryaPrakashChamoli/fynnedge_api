@@ -47,14 +47,22 @@ enum NotificationType: string
     // --- Goals ------------------------------------------------------------
     case GoalMilestone = 'goal_milestone';
 
+    // --- Service ----------------------------------------------------------
+
     /*
-     * No system cases yet.
+     * Two, and deliberately only two.
      *
-     * The category exists because a service message — a change to terms, a
-     * capability withdrawn — is a real thing FynnEdge may one day have to
-     * send. Nothing in Modules 1–28 produces one, and inventing a case so
-     * the enum looks complete would be inventing an event.
+     * A customer whose support request is waiting on them needs to know, or
+     * it stalls indefinitely. A customer whose request has been resolved
+     * asked a question and is owed the answer's arrival.
+     *
+     * There is no `support_acknowledged` and no `support_in_progress`. The
+     * customer has just watched their request being created, so telling
+     * them it exists is noise; and internal movement between advisor states
+     * is FynnEdge's business, not an event in the customer's life.
      */
+    case SupportWaitingForCustomer = 'support_waiting_for_customer';
+    case SupportResolved = 'support_resolved';
 
     public function category(): NotificationCategory
     {
@@ -77,6 +85,9 @@ enum NotificationType: string
             self::FynnScoreChanged => NotificationCategory::FinancialHealth,
 
             self::GoalMilestone => NotificationCategory::Goal,
+
+            self::SupportWaitingForCustomer,
+            self::SupportResolved => NotificationCategory::System,
         };
     }
 

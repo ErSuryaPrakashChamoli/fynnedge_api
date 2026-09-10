@@ -25,6 +25,36 @@ return Application::configure(basePath: dirname(__DIR__))
         // null makes it raise the exception, which the renderer below turns
         // into a clean 401 whatever headers the caller sent.
         $middleware->redirectGuestsTo(fn () => null);
+
+        /*
+         * Who is allowed to tell FynnEdge who the customer is.
+         *
+         * Every HTTPS deployment puts something in front of PHP, and until
+         * that something is trusted, Laravel reads the proxy's own address
+         * as the client's. Measured: two customers arriving through one
+         * load balancer both present as 10.0.0.5, and request->secure()
+         * reports false while the customer is on TLS.
+         *
+         * That is not cosmetic. The OTP limiters key partly on the client
+         * address, so an untrusted proxy collapses the whole customer base
+         * into one bucket — sixty sends a minute shared by everybody — and
+         * the first busy morning locks real people out of logging in.
+         *
+         * Left empty on purpose. Trusting every proxy is the other failure:
+         * X-Forwarded-For is a request header like any other, so an app
+         * reachable outside its load balancer would let any caller claim
+         * any address and step around the per-address limits entirely.
+         * Which proxies to trust is a fact about a deployment that only the
+         * deployment knows, so it is configuration rather than a default,
+         * and TRUSTED_PROXIES is documented in .env.example.
+         */
+        $proxies = env('TRUSTED_PROXIES');
+
+        if (filled($proxies)) {
+            $middleware->trustProxies(
+                at: $proxies === '*' ? '*' : array_map('trim', explode(',', $proxies)),
+            );
+        }
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

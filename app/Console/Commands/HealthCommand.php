@@ -6,6 +6,7 @@ use App\Models\ApplicationSubmission;
 use App\Models\DocumentScan;
 use App\Models\KycVerification;
 use App\Models\ProviderEvent;
+use App\Models\SupportCase;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
@@ -114,6 +115,28 @@ class HealthCommand extends Command
                 'why' => 'Customer told to contact support; only a person can resolve',
                 'column' => 'attempted_at',
                 'query' => ApplicationSubmission::query()->where('outcome', 'unknown'),
+            ],
+            [
+                /*
+                 * A customer who was told to contact support, and did.
+                 *
+                 * Blocking for the same reason the row above is: they
+                 * cannot proceed and cannot safely retry, and only a person
+                 * can resolve it. The difference is that this one has asked
+                 * — which makes it more actionable, not less urgent.
+                 *
+                 * Deliberately not every open case. A customer asking what
+                 * their FynnScore means is not a system health problem, and
+                 * reporting ordinary requests here would make the blocking
+                 * count meaningless.
+                 */
+                'label' => 'Urgent help requests not yet picked up',
+                'severity' => self::BLOCKING,
+                'why' => 'A customer who cannot proceed has asked for help and had no reply',
+                'column' => 'created_at',
+                'query' => SupportCase::query()
+                    ->where('priority', 'high')
+                    ->where('status', 'open'),
             ],
             [
                 'label' => 'Provider events not applied',

@@ -23,16 +23,4 @@ final class RecordedNotification
     {
         return new self(null, false);
     }
-
-    /** Whether the policy decided this was worth saying at all. */
-    public function wasDecided(): bool
-    {
-        return $this->notification !== null;
-    }
-
-    /** Whether this event had already produced a notification. */
-    public function wasDuplicate(): bool
-    {
-        return $this->notification !== null && ! $this->wasCreated;
-    }
 }

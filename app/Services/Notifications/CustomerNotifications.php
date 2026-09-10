@@ -8,10 +8,12 @@ use App\Domain\Notifications\NotificationPolicy;
 use App\Domain\ProviderEvents\ProviderEventType;
 use App\Domain\Score\FynnScoreEngine;
 use App\Domain\Score\ScoreBand;
+use App\Domain\Support\SupportCaseStatus;
 use App\Models\Document;
 use App\Models\FinancialGoal;
 use App\Models\LoanApplication;
 use App\Models\NotificationWatermark;
+use App\Models\SupportCase;
 use App\Models\User;
 use App\Services\CustomerService;
 use Illuminate\Support\Facades\DB;
@@ -201,6 +203,19 @@ class CustomerNotifications
         });
 
         $this->tell($user, $decision);
+    }
+
+    // --- Support ----------------------------------------------------------
+
+    /**
+     * A support request moved.
+     *
+     * The policy decides whether that is worth saying — most transitions
+     * are not. This says only that it moved and from where.
+     */
+    public function supportCaseMoved(SupportCase $case, SupportCaseStatus $from): void
+    {
+        $this->tell($case->user, $this->policy->supportCaseMoved($case, $from));
     }
 
     // --- Shared -----------------------------------------------------------

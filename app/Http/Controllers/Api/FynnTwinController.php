@@ -11,6 +11,7 @@ use App\Domain\Twin\TwinScenario;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\SimulateTwinRequest;
 use App\Services\CustomerService;
+use App\Services\Decisions\CustomerDecisions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -28,6 +29,7 @@ class FynnTwinController extends Controller
         private readonly FynnTwinEngine $twin,
         private readonly FinancialEngine $financial,
         private readonly CustomerService $customers,
+        private readonly CustomerDecisions $decisions,
         private readonly ProductRepository $products,
     ) {}
 
@@ -83,6 +85,17 @@ class FynnTwinController extends Controller
             ),
             $product,
         );
+
+        /*
+         * And remember that they explored it.
+         *
+         * After the projection, from the projection — so the record is
+         * evidence of what they were actually shown rather than a second
+         * calculation that could differ from it. A simulation stays a
+         * simulation: nothing here writes an observation, moves a score or
+         * touches their profile.
+         */
+        $this->decisions->simulated($request->user(), $projection, $product);
 
         return response()->json(['data' => $projection->toArray()]);
     }

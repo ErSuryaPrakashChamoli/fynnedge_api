@@ -11,9 +11,11 @@ use App\Domain\Match\FynnMatchEngine;
 use App\Domain\Match\MatchRequest;
 use App\Domain\Match\ProductMatch;
 use App\Domain\Money;
+use App\Domain\References\SequentialReference;
 use App\Models\ApplicationEvent;
 use App\Models\LoanApplication;
 use App\Models\User;
+use App\Services\Intelligence\FinancialMoments;
 use App\Services\Notifications\CustomerNotifications;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -38,6 +40,7 @@ class LoanApplicationService
         private readonly FinancialEngine $financial,
         private readonly ApplicationSubmissionGateway $gateway,
         private readonly CustomerNotifications $notifications,
+        private readonly FinancialMoments $moments,
     ) {}
 
     /** The wording a customer acknowledges at submission. */
@@ -134,61 +137,79 @@ class LoanApplicationService
         ProductMatch $match,
         ?string $idempotencyKey,
     ): LoanApplication {
-        return DB::transaction(function () use ($user, $input, $product, $match, $idempotencyKey) {
-            $application = $user->applications()->create([
-                'reference' => $this->nextReference(),
-                'product_id' => $product->id,
-                'product_name' => $product->name,
-                'lender' => $product->lender,
-                'product_category' => $product->category,
+        /*
+         * The reference is allocated around the insert, not before it.
+         *
+         * This used to read the highest existing reference and add one,
+         * which is a race the unique index turns into a lost application:
+         * eight customers creating one at the same moment were measured
+         * producing four rows, and four people were told their application
+         * had failed. SequentialReference retries on the collision instead.
+         */
+        return $this->references()->allocate(fn (string $reference) => DB::transaction(
+            function () use ($user, $input, $product, $match, $idempotencyKey, $reference) {
+                $application = $user->applications()->create([
+                    'reference' => $reference,
+                    'product_id' => $product->id,
+                    'product_name' => $product->name,
+                    'lender' => $product->lender,
+                    'product_category' => $product->category,
 
-                // Verbatim. The tenure is the customer's, not the priced one:
-                // if a product cannot serve it, that is a fact about the
-                // application, not something to quietly correct.
-                'amount' => Money::of($input['amount'])->toDecimalString(),
-                'tenure_months' => (int) $input['tenure_months'],
+                    // Verbatim. The tenure is the customer's, not the priced one:
+                    // if a product cannot serve it, that is a fact about the
+                    // application, not something to quietly correct.
+                    'amount' => Money::of($input['amount'])->toDecimalString(),
+                    'tenure_months' => (int) $input['tenure_months'],
 
-                'interest_rate' => $product->interestRate,
-                'emi' => $match->emi->toDecimalString(),
-                'total_interest' => $match->totalInterest->toDecimalString(),
-                'total_payable' => $match->totalPayable->toDecimalString(),
-                'processing_fee' => $match->processingFee->toDecimalString(),
-                'projected_emi_ratio' => $match->projectedEmiRatio(),
-                'match_category' => $match->category->value,
+                    'interest_rate' => $product->interestRate,
+                    'emi' => $match->emi->toDecimalString(),
+                    'total_interest' => $match->totalInterest->toDecimalString(),
+                    'total_payable' => $match->totalPayable->toDecimalString(),
+                    'processing_fee' => $match->processingFee->toDecimalString(),
+                    'projected_emi_ratio' => $match->projectedEmiRatio(),
+                    'match_category' => $match->category->value,
 
-                'status' => ApplicationStatus::Started->value,
-                'idempotency_key' => $idempotencyKey,
+                    'status' => ApplicationStatus::Started->value,
+                    'idempotency_key' => $idempotencyKey,
 
-                /*
-                 * Which catalogue version produced the terms above.
-                 *
-                 * Recorded alongside the snapshot, never instead of it.
-                 * Nothing resolves these back to a live price — they exist
-                 * so an application at 11.5% can be traced to the version
-                 * that offered 11.5%, after that version has been closed
-                 * and replaced.
-                 */
-                'catalogue_product_code' => $product->provider === null
-                    ? null
-                    : $product->id,
-                'product_version_id' => $product->versionId,
-                'product_version_effective_from' => $product->versionEffectiveFrom,
-            ]);
+                    /*
+                     * Which catalogue version produced the terms above.
+                     *
+                     * Recorded alongside the snapshot, never instead of it.
+                     * Nothing resolves these back to a live price — they exist
+                     * so an application at 11.5% can be traced to the version
+                     * that offered 11.5%, after that version has been closed
+                     * and replaced.
+                     */
+                    'catalogue_product_code' => $product->provider === null
+                        ? null
+                        : $product->id,
+                    'product_version_id' => $product->versionId,
+                    'product_version_effective_from' => $product->versionEffectiveFrom,
+                ]);
 
-            $application->recordEvent(
-                'Started',
-                'Application created from a matched product.',
-                ApplicationEvent::SOURCE_FYNNEDGE,
-            );
+                $application->recordEvent(
+                    'Started',
+                    'Application created from a matched product.',
+                    ApplicationEvent::SOURCE_FYNNEDGE,
+                );
 
-            // Inside the transaction, so an application that does not
-            // survive creation is not one the customer was told about.
-            // A repeat of the same idempotent request returns above and
-            // never reaches here, so nobody is told twice.
-            $this->notifications->applicationStarted($application);
+                // Inside the transaction, so an application that does not
+                // survive creation is not one the customer was told about.
+                // A repeat of the same idempotent request returns above and
+                // never reaches here, so nobody is told twice.
+                $this->notifications->applicationStarted($application);
+                $this->moments->applicationStarted($application);
 
-            return $application;
-        });
+                return $application;
+            }
+        ));
+    }
+
+    /** FE-YYYY-NNNNNN, allocated against the unique index. */
+    private function references(): SequentialReference
+    {
+        return new SequentialReference('FE-', 'loan_applications');
     }
 
     /**
@@ -339,31 +360,9 @@ class LoanApplicationService
             );
 
             $this->notifications->applicationCancelled($fresh);
+            $this->moments->applicationCancelled($fresh);
 
             return $fresh->fresh();
         });
-    }
-
-    /**
-     * FE-YYYY-NNNNNN, sequential within the year.
-     *
-     * Readable enough to quote over the phone, and it carries nothing about
-     * the customer.
-     */
-    private function nextReference(): string
-    {
-        $year = now()->year;
-        $prefix = 'FE-'.$year.'-';
-
-        $last = LoanApplication::query()
-            ->where('reference', 'like', $prefix.'%')
-            ->orderByDesc('reference')
-            ->value('reference');
-
-        $next = $last === null
-            ? 1
-            : ((int) substr($last, strlen($prefix))) + 1;
-
-        return $prefix.str_pad((string) $next, 6, '0', STR_PAD_LEFT);
     }
 }

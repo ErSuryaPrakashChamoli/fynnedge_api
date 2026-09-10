@@ -93,6 +93,39 @@ final class FynnScore
         ));
     }
 
+    /**
+     * The score as anything other than the FynnScore screen needs it.
+     *
+     * The figure, the band, and the band's own sentence. Not the
+     * dimensions, the recommendations, the curves or the disclaimer —
+     * those are what the FynnScore screen exists to show, and a summary
+     * that carried them would be that screen arriving somewhere else.
+     *
+     * Defined here rather than at each call site so a band cannot be
+     * labelled one way on the review and another on the score screen.
+     *
+     * @return array<string, mixed>
+     */
+    public function toSummaryArray(): array
+    {
+        return [
+            'has_score' => $this->hasScore,
+            'score' => $this->score,
+            'band' => $this->band?->value,
+            'band_label' => $this->band?->label(),
+
+            // The band's sentence when there is a score, and the engine's
+            // own reason when there is not. A customer without a score is
+            // told why rather than shown a blank.
+            'summary' => $this->hasScore
+                ? $this->band->summary()
+                : $this->insufficientDataReason,
+
+            'missing_requirements' => $this->missingRequirements,
+            'model_version' => FynnScoreEngine::MODEL_VERSION,
+        ];
+    }
+
     /** @return array<string, mixed> */
     public function toArray(): array
     {

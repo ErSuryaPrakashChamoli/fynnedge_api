@@ -8,12 +8,14 @@ use App\Http\Controllers\Api\ApplicationSubmissionController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ConsentController;
 use App\Http\Controllers\Api\CreditController;
+use App\Http\Controllers\Api\DecisionController;
 use App\Http\Controllers\Api\DocumentController;
 use App\Http\Controllers\Api\DocumentScanController;
 use App\Http\Controllers\Api\FinancialSummaryController;
 use App\Http\Controllers\Api\FynnTwinController;
 use App\Http\Controllers\Api\GoalController;
 use App\Http\Controllers\Api\HomeController;
+use App\Http\Controllers\Api\IntelligenceController;
 use App\Http\Controllers\Api\KycController;
 use App\Http\Controllers\Api\MatchController;
 use App\Http\Controllers\Api\NotificationController;
@@ -23,6 +25,7 @@ use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ProviderEventController;
 use App\Http\Controllers\Api\ScoreController;
+use App\Http\Controllers\Api\SupportController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -231,6 +234,52 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
      * Literal segments before the wildcard, so 'read-all' and
      * 'unread-count' are never taken for an id.
      */
+    /*
+     * Support.
+     *
+     * NO ADVISOR SYSTEM OR SUPPORT CRM IS CONNECTED. These write to
+     * FynnEdge's own store. There is deliberately no advisor endpoint here:
+     * an advisor mutation reachable with a customer token would let a
+     * customer author FynnEdge's side of their own case.
+     *
+     * Creation and messages are limited separately — creating a case is a
+     * heavier act than adding a line to one that exists.
+     */
+    /*
+     * Financial intelligence.
+     *
+     * One aggregate read, plus the timeline as its own question. Read-only
+     * throughout: nothing here creates a moment, because a moment records
+     * something that happened and an endpoint that could write one would
+     * let a client write history.
+     */
+    /*
+     * Decision history.
+     *
+     * Read-only. Nothing here creates a decision — the two that are
+     * recorded are written from the customer's own action, in the endpoint
+     * that action reaches, and an endpoint that could write one would let a
+     * client write history.
+     */
+    Route::get('/decisions', [DecisionController::class, 'index']);
+    Route::get('/decisions/{decision}', [DecisionController::class, 'show']);
+
+    Route::get('/intelligence', [IntelligenceController::class, 'show']);
+    Route::get('/intelligence/timeline', [IntelligenceController::class, 'timeline']);
+
+    Route::get('/support/categories', [SupportController::class, 'categories']);
+    Route::get('/support/cases', [SupportController::class, 'index']);
+    Route::get('/support/cases/{case}', [SupportController::class, 'show']);
+    Route::post('/support/cases/{case}/close', [SupportController::class, 'close']);
+
+    Route::middleware('throttle:support-create')->group(function () {
+        Route::post('/support/cases', [SupportController::class, 'store']);
+    });
+
+    Route::middleware('throttle:support-message')->group(function () {
+        Route::post('/support/cases/{case}/messages', [SupportController::class, 'addMessage']);
+    });
+
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);

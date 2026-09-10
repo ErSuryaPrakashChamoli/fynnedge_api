@@ -341,6 +341,27 @@ return [
         ],
     ],
 
+    /*
+     |--------------------------------------------------------------------
+     | Support
+     |--------------------------------------------------------------------
+     |
+     | NO ADVISOR SYSTEM, SUPPORT CRM, TICKETING SYSTEM OR CHAT PROVIDER IS
+     | CONNECTED. Support cases live in FynnEdge's own tables and are read
+     | by whoever looks at them; nothing is forwarded anywhere.
+     |
+     | These are rate limits and nothing else. There is no retention period
+     | here because none has been decided — support history is a customer's
+     | own record of what they asked and what they were told, and inventing
+     | a deletion date to make the module feel finished would be deleting
+     | it on a schedule nobody chose.
+     |
+     */
+    'support' => [
+        'cases_per_hour' => (int) env('FYNNEDGE_SUPPORT_CASES_PER_HOUR', 5),
+        'messages_per_hour' => (int) env('FYNNEDGE_SUPPORT_MESSAGES_PER_HOUR', 20),
+    ],
+
     'otp' => [
         'driver' => env('FYNNEDGE_OTP_DRIVER', 'log'),
         'length' => 6,

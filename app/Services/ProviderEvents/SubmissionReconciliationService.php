@@ -9,6 +9,7 @@ use App\Models\ApplicationEvent;
 use App\Models\ApplicationSubmission;
 use App\Models\LoanApplication;
 use App\Models\ProviderEvent;
+use App\Services\Intelligence\FinancialMoments;
 use App\Services\Notifications\CustomerNotifications;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -43,6 +44,7 @@ class SubmissionReconciliationService
 {
     public function __construct(
         private readonly CustomerNotifications $notifications,
+        private readonly FinancialMoments $moments,
     ) {}
 
     /**
@@ -256,6 +258,22 @@ class SubmissionReconciliationService
              * one produces none.
              */
             $this->notifications->providerEvent(
+                $event->type,
+                $application,
+                $event->idempotencyKey(),
+            );
+
+            /*
+             * And, where it is part of the customer's financial story,
+             * remember it.
+             *
+             * Same branch, same transaction, same key — so a stale event
+             * cannot become a moment and a redelivered one produces exactly
+             * one. Which of these are moments is decided by the moments
+             * layer, not here: a provider saying "under review" is a fact
+             * about their queue, not an event in somebody's life.
+             */
+            $this->moments->providerEvent(
                 $event->type,
                 $application,
                 $event->idempotencyKey(),

@@ -6,6 +6,7 @@ use App\Domain\Catalog\LoanProduct;
 use App\Domain\Catalog\ProductRepository;
 use App\Domain\Money;
 use App\Http\Controllers\Controller;
+use App\Services\Decisions\CustomerDecisions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -15,7 +16,10 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class ProductController extends Controller
 {
-    public function __construct(private readonly ProductRepository $products) {}
+    public function __construct(
+        private readonly ProductRepository $products,
+        private readonly CustomerDecisions $decisions,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -74,6 +78,16 @@ class ProductController extends Controller
                 $selected[] = $product->toArray();
             }
         }
+
+        /*
+         * And remember that they looked at these together.
+         *
+         * The codes, and nothing else. FynnEdge picked no winner and the
+         * record says nothing about which the customer preferred — reading
+         * a preference out of a comparison is exactly the invented decision
+         * this module refuses to make.
+         */
+        $this->decisions->compared($request->user(), $validated['product_ids']);
 
         return response()->json(['data' => $selected]);
     }

@@ -7,10 +7,12 @@ use App\Domain\Financial\FinancialEngine;
 use App\Domain\Score\FynnScoreEngine;
 use App\Models\Document;
 use App\Models\FinancialGoal;
+use App\Models\FinancialMoment;
 use App\Models\LoanApplication;
 use App\Models\User;
 use App\Services\ConsentService;
 use App\Services\CustomerService;
+use App\Services\Intelligence\FinancialIntelligence;
 
 /**
  * Assembles what FynnAI is allowed to know.
@@ -32,6 +34,16 @@ class FynnAiContextBuilder
     public const MAX_APPLICATIONS = 5;
 
     public const MAX_DOCUMENTS = 20;
+
+    /**
+     * How much of the financial timeline the assistant is given.
+     *
+     * Five. A conversation is about what is happening now, and handing over
+     * a customer's whole history every time would be a payload that grows
+     * without limit and an assistant reasoning about last year to answer a
+     * question about this month.
+     */
+    public const MAX_MOMENTS = 5;
 
     public function __construct(
         private readonly CustomerService $customers,
@@ -73,7 +85,11 @@ class FynnAiContextBuilder
             $missing[] = 'fynn_score';
         }
 
+        // With their submissions: the context describes each application's
+        // outcome, and the intelligence state built from the same
+        // collection asks every one of them for its latest attempt.
         $applications = $user->applications()
+            ->with('submissions')
             ->orderByDesc('created_at')
             ->limit(self::MAX_APPLICATIONS)
             ->get();
@@ -95,6 +111,13 @@ class FynnAiContextBuilder
         // it the conversation still works; it simply starts fresh.
         $memoryAllowed = $this->consents
             ->hasCurrentConsent($user, ConsentType::AiMemory);
+
+        /*
+         * The intelligence layer's own view, built from the goals and
+         * applications already loaded above rather than fetched again.
+         */
+        $intelligence = app(FinancialIntelligence::class);
+        $state = $intelligence->stateFor($user, $goals, $applications);
 
         return new FynnAiContext(
             customer: [
@@ -188,6 +211,40 @@ class FynnAiContextBuilder
 
             missing: $missing,
             memoryAllowed: $memoryAllowed,
+
+            /*
+             * What FynnEdge already worked out, so the assistant explains
+             * it rather than inventing a rival version.
+             *
+             * The intelligence layer is the source of truth and FynnAI is
+             * a reader of it. Nothing here lets the assistant produce a
+             * financial fact FynnEdge could not already state.
+             */
+            nextAction: $intelligence->nextActionFor($state)?->toArray(),
+
+            recentMoments: $intelligence
+                ->momentsFor($user, self::MAX_MOMENTS)
+                ->map(fn (FinancialMoment $m) => [
+                    'title' => $m->title,
+                    'description' => $m->description,
+                    'occurred_at' => $m->occurred_at?->toDateString(),
+                ])
+                ->values()
+                ->all(),
+
+            hasComparableHistory: $state->canShowTrends(),
+
+            /*
+             * One sentence about what changed, or none.
+             *
+             * Built by the same object the progress screen reads, so the
+             * assistant cannot describe a change the customer's own history
+             * does not show — and cannot describe one at all until two
+             * observations exist to support it.
+             */
+            latestObservedChange: (
+                $intelligence->progressFor($user)->changes()[0] ?? null
+            )?->summary(),
         );
     }
 

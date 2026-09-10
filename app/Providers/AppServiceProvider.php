@@ -370,5 +370,32 @@ class AppServiceProvider extends ServiceProvider
         // see the limitations in the module report.
         RateLimiter::for('vault-write', fn (Request $request) => Limit::perMinute(20)
             ->by('vault-write:'.($request->user()?->id ?: $request->ip())));
+
+        /*
+         * Support.
+         *
+         * Two limits, because the two acts are different. Creating a case
+         * is somebody deciding they need help; five an hour is far more
+         * than anyone with a real problem will open, and it bounds what a
+         * loop or a stuck retry can write.
+         *
+         * Adding information to a case that already exists is the ordinary
+         * thing a customer does while being helped, so it is looser. Both
+         * are per customer: a shared IP is a household, not an attacker,
+         * and limiting support by IP would deny help to the second person
+         * on a home connection.
+         *
+         * Deliberately generous rather than tight. A limiter that stops
+         * somebody asking for help is a worse failure than one that lets a
+         * duplicate through — and duplicates are already prevented by the
+         * idempotency key.
+         */
+        RateLimiter::for('support-create', fn (Request $request) => Limit::perHour(
+            (int) config('fynnedge.support.cases_per_hour', 5),
+        )->by('support-create:'.($request->user()?->id ?: $request->ip())));
+
+        RateLimiter::for('support-message', fn (Request $request) => Limit::perHour(
+            (int) config('fynnedge.support.messages_per_hour', 20),
+        )->by('support-message:'.($request->user()?->id ?: $request->ip())));
     }
 }

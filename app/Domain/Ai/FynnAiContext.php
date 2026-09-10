@@ -37,6 +37,53 @@ final class FynnAiContext
         public readonly array $missing,
         /** True when the customer has allowed persistent memory. */
         public readonly bool $memoryAllowed,
+
+        /**
+         * The one next step FynnEdge would suggest, or null.
+         *
+         * So the assistant can agree with the rest of the product rather
+         * than improvising a different suggestion. It is told what FynnEdge
+         * already decided, not asked to decide.
+         *
+         * @var array<string, mixed>|null
+         */
+        public readonly ?array $nextAction = null,
+
+        /**
+         * A few recent things that happened in this customer's financial
+         * life — title, description and date only.
+         *
+         * Bounded hard. The whole of a timeline in every request would be
+         * an assistant reasoning about a customer's entire history to
+         * answer a question about this month, and a payload that grows
+         * without limit.
+         *
+         * @var list<array<string, mixed>>
+         */
+        public readonly array $recentMoments = [],
+
+        /**
+         * Whether FynnEdge has enough observations to compare anything.
+         *
+         * The most important field here. Without it an assistant looking at
+         * one set of figures has no way to know whether it is looking at a
+         * trend or a single reading, and "your expenses are falling" is the
+         * kind of thing a customer acts on.
+         */
+        public readonly bool $hasComparableHistory = false,
+
+        /**
+         * The most recent thing FynnEdge observed changing, as a sentence.
+         *
+         * One item, already written, already checked. Not the observations
+         * themselves: handing over a customer's stored financial history
+         * would let an assistant describe a shape in it, and a shape read
+         * off two or three form edits is a story rather than a fact.
+         *
+         * Null whenever nothing has been observed to change, which is the
+         * ordinary case and is not the same as nothing having happened.
+         */
+        public readonly ?string $latestObservedChange = null,
     ) {}
 
     public function hasFinancialProfile(): bool
@@ -74,6 +121,21 @@ final class FynnAiContext
             'memories' => $this->memories,
             'missing' => $this->missing,
             'memory_allowed' => $this->memoryAllowed,
+
+            // What FynnEdge decided, so the assistant does not decide
+            // something else.
+            'next_action' => $this->nextAction,
+            'recent_moments' => $this->recentMoments,
+
+            /*
+             * And whether any comparison is possible at all.
+             *
+             * FynnEdge kept no financial history before Module 31, so for
+             * a customer who has changed nothing this is false — and an
+             * assistant told so cannot turn one reading into a trend.
+             */
+            'has_comparable_history' => $this->hasComparableHistory,
+            'latest_observed_change' => $this->latestObservedChange,
         ];
     }
 }

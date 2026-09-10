@@ -189,6 +189,28 @@ final class Money
         return '₹'.implode(',', $parts).','.$last3;
     }
 
+    /**
+     * The same grouping, with the sign in front of the symbol.
+     *
+     * toIndianString() takes the absolute value, and that is right where it
+     * is used: "you would be spending ₹8,000 more than you earn" gets its
+     * direction from the sentence around it, and a minus there would say
+     * the opposite of what is meant.
+     *
+     * A figure standing on its own has no sentence to lean on. A recorded
+     * surplus of -₹8,000 printed as ₹8,000 is not a formatting nicety, it
+     * is the wrong number — so anything that shows a figure by itself uses
+     * this one. The sign leads the symbol, exactly as Fmt.money does in the
+     * app: a negative amount is a shortfall, not a currency called minus
+     * rupees.
+     */
+    public function toSignedIndianString(): string
+    {
+        $grouped = $this->toIndianString();
+
+        return $this->isNegative() ? '-'.$grouped : $grouped;
+    }
+
     public static function divideHalfUp(int $numerator, int $denominator): int
     {
         if ($denominator === 0) {

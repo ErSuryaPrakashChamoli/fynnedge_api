@@ -5,11 +5,15 @@ namespace App\Services;
 use App\Domain\Financial\FinancialEngine;
 use App\Domain\Home\AttentionItem;
 use App\Domain\Home\AttentionRules;
+use App\Domain\Intelligence\NextActionType;
 use App\Domain\Score\FynnScoreEngine;
 use App\Http\Resources\FinancialGoalResource;
+use App\Models\FinancialGoal;
 use App\Models\LoanApplication;
 use App\Models\User;
+use App\Services\Intelligence\FinancialIntelligence;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 
 /**
  * Everything Home shows, assembled from what already exists.
@@ -32,6 +36,7 @@ class HomeSnapshotService
         private readonly FinancialEngine $financial,
         private readonly FynnScoreEngine $scoring,
         private readonly AttentionRules $attention,
+        private readonly FinancialIntelligence $intelligence,
     ) {}
 
     /** @return array<string, mixed> */
@@ -48,7 +53,15 @@ class HomeSnapshotService
             ->orderBy('id')
             ->get();
 
+        /*
+         * With their submissions.
+         *
+         * Both the attention rules and the next action ask each
+         * application what became of its latest submission, and without
+         * this that question is a round trip per application.
+         */
         $applications = $user->applications()
+            ->with('submissions')
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->get();
@@ -122,12 +135,17 @@ class HomeSnapshotService
                 $this->attention->evaluate($snapshot, $goals, $applications),
             ),
 
-            'primary_action' => $this->primaryAction(
-                $snapshot->hasIncome,
-                $this->firstName($profile->full_name) !== null,
-                $goals->count(),
-                $applications->count(),
-            ),
+            /*
+             * The one next step, from the intelligence layer.
+             *
+             * Home used to decide this itself, with a ladder that put
+             * "set your first goal" above an application FynnEdge had sent
+             * and never heard back about — so a customer told in as many
+             * words not to submit again was simultaneously invited to go
+             * and do something else. Truth and priority have to agree, and
+             * they can only agree if one place decides.
+             */
+            'primary_action' => $this->primaryAction($user, $goals, $applications),
         ];
     }
 
@@ -140,51 +158,104 @@ class HomeSnapshotService
      *
      * @return array<string, string>
      */
-    private function primaryAction(
-        bool $hasIncome,
-        bool $hasName,
-        int $goalCount,
-        int $applicationCount,
-    ): array {
-        if (! $hasIncome) {
+    /**
+     * The next step, mapped onto Home's own vocabulary.
+     *
+     * NextActionRules decides; this translates. The keys are kept as they
+     * were wherever the rule is the same, because a customer's app in the
+     * field is reading them — and the two new ones are the states Home
+     * previously had no way to express.
+     *
+     * @param  Collection<int, FinancialGoal>  $goals
+     * @param  Collection<int, LoanApplication>  $applications
+     * @return array<string, string>
+     */
+    private function primaryAction(User $user, $goals, $applications): array
+    {
+        $action = $this->intelligence->nextActionFor(
+            $this->intelligence->stateFor($user, $goals, $applications)
+        );
+
+        if ($action === null) {
             return [
+                'key' => 'explore_options',
+                'label' => 'Explore your options',
+                'route' => '/loan-discovery',
+            ];
+        }
+
+        return match ($action->type) {
+            NextActionType::CompleteProfile => [
                 'key' => 'complete_profile',
                 'label' => 'Complete your profile',
                 'route' => '/financial-profile',
-            ];
-        }
-
-        // The figures are in but FynnEdge has no name to greet them by, so
-        // the way to fix that is offered rather than a name being assumed.
-        if (! $hasName) {
-            return [
+            ],
+            NextActionType::AddYourName => [
                 'key' => 'add_your_name',
                 'label' => 'Tell us your name',
                 'route' => '/profile',
-            ];
-        }
-
-        if ($goalCount === 0) {
-            return [
+            ],
+            NextActionType::CreateGoal => [
                 'key' => 'set_goal',
                 'label' => 'Set your first goal',
                 'route' => '/goals',
-            ];
-        }
-
-        if ($applicationCount > 0) {
-            return [
+            ],
+            NextActionType::ReviewApplication => [
                 'key' => 'view_applications',
                 'label' => 'View your applications',
                 'route' => '/applications',
-            ];
-        }
+            ],
+            NextActionType::ExploreOptions => [
+                'key' => 'explore_options',
+                'label' => 'Explore your options',
+                'route' => '/loan-discovery',
+            ],
 
-        return [
-            'key' => 'explore_options',
-            'label' => 'Explore your options',
-            'route' => '/loan-discovery',
-        ];
+            // The two Home could not say before.
+            NextActionType::ResolveSubmissionStatus => [
+                'key' => 'resolve_submission_status',
+                'label' => 'Check your application',
+                'route' => $action->actionRoute,
+            ],
+            NextActionType::ReviewGoal => [
+                'key' => 'review_goal',
+                'label' => 'Review your goals',
+                'route' => '/goals',
+            ],
+            NextActionType::ReviewScore => [
+                'key' => 'review_score',
+                'label' => 'Review your progress',
+                'route' => '/fynn-score',
+            ],
+
+            // Module 33's rungs. Each keeps the action's own route, so
+            // Home sends the customer where the rule intended.
+            NextActionType::ReviewProfile => [
+                'key' => 'review_profile',
+                'label' => 'Review your figures',
+                'route' => '/financial-profile',
+            ],
+            NextActionType::ReviewBuffer => [
+                'key' => 'review_buffer',
+                'label' => 'Plan a buffer',
+                'route' => $action->actionRoute,
+            ],
+            NextActionType::ImproveScore => [
+                'key' => 'improve_score',
+                'label' => 'See your FynnScore',
+                'route' => '/fynn-score',
+            ],
+            NextActionType::ReviewDecision => [
+                'key' => 'review_decision',
+                'label' => 'What you explored',
+                'route' => '/decisions',
+            ],
+            NextActionType::RunSimulation => [
+                'key' => 'run_simulation',
+                'label' => 'Try a what-if',
+                'route' => '/fynn-twin',
+            ],
+        };
     }
 
     private function firstName(?string $fullName): ?string
