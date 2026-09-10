@@ -49,7 +49,12 @@ return new class extends Migration
             $table->timestamp('attempted_at')->nullable();
             $table->timestamps();
 
-            $table->unique(['notification_id', 'notification_device_id']);
+            // Named explicitly: the generated name would be 69 characters,
+            // and MySQL caps an identifier at 64.
+            $table->unique(
+                ['notification_id', 'notification_device_id'],
+                'notification_deliveries_notification_device_unique',
+            );
             $table->index('status');
         });
     }

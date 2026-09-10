@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AdminUser;
 use App\Models\User;
 
 return [
@@ -42,6 +43,24 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        /*
+         * FynnEdge staff, and nobody else.
+         *
+         * Its own guard on its own provider, so the two populations cannot
+         * be confused for one another by anything that resolves a user. A
+         * customer's Sanctum token names a `User` and can only satisfy the
+         * guard whose provider builds those; it is not that admin access
+         * checks reject it, it is that there is nothing here for it to
+         * authenticate as.
+         *
+         * `web` is untouched. The customer API is stateless and never asks
+         * a session guard anything, and adding this must not change that.
+         */
+        'admin' => [
+            'driver' => 'session',
+            'provider' => 'admin_users',
+        ],
     ],
 
     /*
@@ -65,6 +84,14 @@ return [
         'users' => [
             'driver' => 'eloquent',
             'model' => env('AUTH_MODEL', User::class),
+        ],
+
+        // Staff. Not configurable by environment, unlike the customer model
+        // above: which table holds administrators is an architectural fact
+        // about this application, not a deployment choice.
+        'admin_users' => [
+            'driver' => 'eloquent',
+            'model' => AdminUser::class,
         ],
 
         // 'users' => [

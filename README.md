@@ -6,6 +6,57 @@ Standalone. It shares no code, database, authentication or infrastructure
 with fynn_on, FYNN-ON, the LMS, the CRM or any existing loan system, and it
 must not be connected to them.
 
+Two front doors onto one application:
+
+```text
+Flutter app ──► /api/v1/*  ──► Sanctum bearer token ──► users
+                    │
+              shared services, models, policies, database
+                    │
+FynnEdge staff ──► /admin  ──► session (admin guard)  ──► admin_users
+```
+
+The two authentication systems are separate by construction, not by a
+check somebody has to remember: a customer token names a `User`, the admin
+guard's provider only builds `AdminUser`, so there is nothing at `/admin`
+for a customer token to be.
+
+## Requirements
+
+| | |
+|---|---|
+| PHP | 8.3+ (developed and tested on 8.5) |
+| Composer | 2.x |
+| Database | MySQL 8.x in production; SQLite for the test suite |
+| Node | only to build the admin panel's assets — the API needs none |
+| Extensions | `intl` (Filament), plus the Laravel defaults |
+
+## Installation
+
+```bash
+composer install
+cp .env.example .env
+php artisan key:generate
+
+# Create the schema. `migrate` is additive and safe to re-run;
+# `migrate:fresh` drops everything and is not for a populated database.
+php artisan migrate
+
+# Baseline development data — one customer, matching the app's own mocks.
+php artisan db:seed
+```
+
+Then, for development only:
+
+```bash
+php artisan db:seed --class=AdminUserSeeder      # a Super Admin for /admin
+php artisan db:seed --class=SampleCatalogueSeeder # the six sample products
+php artisan db:seed --class=DemoFixtureSeeder     # four invented customers
+```
+
+All three refuse to run when `APP_ENV=production`. The first behaves
+differently there — see **The admin panel** below.
+
 ## Running
 
 ```bash
@@ -22,6 +73,165 @@ All routes are under `/api/v1` (set in `bootstrap/app.php`).
 ```bash
 php artisan route:list --path=api
 ```
+
+## The API
+
+82 endpoints, all under `/api/v1`. Three are public — the two OTP endpoints
+and the provider ingress — and every other one requires a Sanctum bearer
+token.
+
+**Signing in.** There are no passwords. A customer is a mobile number that
+proves itself with a one-time code:
+
+```bash
+POST /api/v1/auth/send-otp     {"mobile":"9876543210"}
+  → {"data":{"reference":"…","expires_in":30,"dev_hint":"123456"}}
+
+POST /api/v1/auth/verify-otp   {"mobile":"…","reference":"…","code":"…","device_name":"Pixel 8"}
+  → {"data":{"token":"…","is_new_user":false,"expires_at":"…","profile":{…}}}
+```
+
+`dev_hint` is the issued code, returned only when `FYNNEDGE_OTP_DEV_HINT` is
+explicitly on **and** the app is not in production. Both conditions have to
+hold; see **Environment**.
+
+**Every other request** carries the token:
+
+```http
+Authorization: Bearer <token>
+Accept: application/json
+Content-Type: application/json
+```
+
+Tokens last 30 days (`SANCTUM_TOKEN_EXPIRATION`, in minutes), are stored only
+as a SHA-256 hash, and are revoked per device — signing out on a phone leaves
+a tablet signed in.
+
+**Responses** are always enveloped:
+
+```jsonc
+{"data": {…}}                 // or  {"data": [...]}
+{"data": [...], "meta": {…}}  // where a list paginates
+{"message": "…"}                          // errors
+{"message": "…", "errors": {"field": ["…"]}}  // validation
+```
+
+**Status codes** the app should expect:
+
+| | |
+|---|---|
+| 200 / 201 / 204 | read · created · deleted |
+| 401 | no token, or it is expired or revoked |
+| 404 | not found **or not yours** — deliberately indistinguishable |
+| 409 | idempotency conflict |
+| 422 | validation, or the domain refusing |
+| 429 | rate limited; honour `Retry-After` |
+| 501 | the capability exists but no provider is connected |
+
+**Ownership.** Every customer-scoped route resolves through the token
+holder's own relation, so another customer's id answers **404 rather than
+403** — an attacker cannot tell "not yours" from "does not exist".
+
+**Uploads** go to `POST /api/v1/documents` as `multipart/form-data` with
+`file`, `type` and `name`. `GET /api/v1/documents/limits` states what is
+accepted (10 MB; PDF, JPEG, PNG, HEIC, WebP) so the app can refuse before a
+round trip. Content is sniffed, not trusted — a renamed executable is
+rejected. Files stream back through `GET /api/v1/documents/{id}/download`,
+authenticated on every request; there is no public or signed URL.
+
+**Rate limits** are per capability, not global: OTP sends 3/min per number,
+credit checks and KYC 5/hour, lender submissions 3/hour, vault writes 20/min,
+authenticated traffic 300/min. The full list is in
+`AppServiceProvider::configureRateLimiting()`, each with the reason for its
+figure.
+
+The complete inventory:
+
+```bash
+php artisan route:list --path=api
+```
+
+## The admin panel
+
+Filament 5 at `/admin`, for FynnEdge staff. It is not the API and the app
+never touches it.
+
+```bash
+php artisan db:seed --class=AdminUserSeeder
+# Development Super Admin: admin@fynnedge.test
+# Password: <generated, printed once>
+```
+
+The password is never written down here. Set `FYNNEDGE_ADMIN_PASSWORD` to
+choose one, or leave it unset and the seeder generates a password and prints
+it to the console of whoever ran it — after which only the hash exists. An
+administrator that already exists keeps the password it has; the seeder will
+not silently reset it.
+
+In production the same seeder creates nothing unless `FYNNEDGE_ADMIN_EMAIL`
+and `FYNNEDGE_ADMIN_PASSWORD` (12 characters minimum) are both set, and it
+refuses rather than inventing a default — a well-known credential on a panel
+that reads every customer's finances is the whole breach.
+
+**Six roles**, and what each may reach:
+
+| Role | Staff accounts | Customer money | Identity & credit | Catalogue | Support |
+|---|---|---|---|---|---|
+| Super Admin | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Business Head | | ✓ | ✓ | ✓ | |
+| Manager | | ✓ | ✓ | | ✓ |
+| Team Leader | | | | | ✓ |
+| Advisor | | | | | ✓ |
+| Viewer | | | | | |
+
+Every role can see customers and consents; staff cannot answer for the
+product otherwise. `Advisor` is the application's own word — support messages
+have carried `author_type = advisor` since Module 30.
+
+**Almost everything is read-only.** Customer records are written by the
+domain services, which also record *why*; a panel that could edit the row
+directly would be a second writer with no such account of itself. The
+exceptions are staff accounts, the catalogue, and replying to a support case
+— and that reply goes through `SupportCaseService::addAdvisorMessage()`, the
+same service an advisor API would call.
+
+**Deactivate, never delete.** `is_active = false` ends a session already in
+progress, checked on every request rather than only at login. Nothing in the
+panel deletes a customer, an application or a member of staff, because those
+records are the evidence behind decisions.
+
+Sensitive fields are absent rather than masked — a masked figure still
+confirms one exists. Document storage keys, bureau references, KYC identity
+fields, file digests and every password or token hash are withheld from all
+roles, and that is asserted against the rendered HTML in
+`SensitiveExposureTest`.
+
+## Database
+
+**Migrations are the schema. Seeders are the data.** The application does not
+depend on any pre-existing database file to rebuild itself:
+
+```bash
+php artisan migrate:fresh   # 41 migrations, from empty
+php artisan db:seed         # baseline development data
+```
+
+41 migrations produce 46 tables, 502 columns, 41 foreign keys and 130
+indexes. `php artisan migrate:fresh` is verified to work from nothing on both
+MySQL and SQLite.
+
+Development data comes from four seeders, each opt-in except the first:
+
+| Seeder | Writes | In production |
+|---|---|---|
+| `DemoCustomerSeeder` | the one customer the app's mocks mirror | refuses |
+| `AdminUserSeeder` | a Super Admin | requires env vars, or refuses |
+| `SampleCatalogueSeeder` | six fictional products | refuses |
+| `DemoFixtureSeeder` | four invented customers with applications, documents, cases | refuses |
+
+Demo customers use the reserved `90000001xx` block and every record is
+labelled — names begin "Demo", references begin `DEMO-`. Remove them with
+`php artisan demo:purge`.
 
 ## What is connected, and what is not
 
@@ -556,6 +766,26 @@ pricing, scores, extractions, consent versions), `FinancialIntegrityTest`,
 `ProductionConfigTest` (what the app refuses when it believes it is in
 production).
 
+Several suites are deliberately written to fail when something is *added*
+rather than when something breaks, because the failure mode being guarded
+against is an absent decision rather than a wrong one:
+
+- `OwnershipCoverageTest` reads the route table. Every authenticated route
+  with a `{parameter}` must be probed as the wrong customer or carry a
+  written reason for needing no probe.
+- `RoleMatrixTest` holds the whole admin access matrix — 14 resources × 6
+  roles — and fails if a resource exists that the matrix does not mention.
+- `SensitiveExposureTest` plants sentinel values in withheld fields and
+  searches the rendered HTML for them, so the guarantee is about the
+  response rather than the resource definition.
+- `PanelRendersTest` renders every panel page **with fixtures loaded**; an
+  empty table renders almost anything.
+- `VaultIsolationTest` fails if any new route serves a download.
+
+Three tests skip where `pcntl` is unavailable. They prove concurrency
+behaviour rather than simulate it, and skipping is the honest outcome; the
+same races were verified manually with parallel processes.
+
 ## Operations
 
 ```bash
@@ -565,7 +795,28 @@ php artisan fynn:health --json          # same, for a monitor
 php artisan fynn:retention              # what is held, and how old
 php artisan fynn:provider-events:retry  # re-attempt events that reached nothing
 php artisan queue:work                  # document reading, when QUEUE_CONNECTION=database
+
+php artisan database:verify             # this database against the original SQLite
+php artisan database:verify --allow-extra  # …tolerating rows added since
+php artisan demo:purge --admin          # remove the demo customers and dev admin
 ```
+
+`database:verify` answers one question: did the conversion lose anything.
+It compares row counts and column shape table by table and never prints a
+record's contents — it will one day be pointed at a database holding real
+customers. Once demo fixtures are loaded the database legitimately holds
+more than the original, which is what `--allow-extra` is for: gains are
+reported as `EXTRA`, losses still fail.
+
+`demo:purge` removes two populations: the customers `DemoFixtureSeeder`
+writes, and the ones the Flutter contract test leaves behind after signing
+in against a running backend. Both sets are named individually in
+`App\Domain\Demo\ReservedIdentities` — never matched by prefix, so a real
+customer cannot be caught by a rule getting broader. It shows what will
+cascade and asks before deleting; `--dry-run` inspects without changing
+anything, which is the only way to see the effect when `--force` is used
+from a script. The baseline development customer is deliberately not
+included: it is the one the Flutter app's mocks mirror.
 
 `fynn:health` exits non-zero only when a customer is **blocked and cannot
 resolve it themselves** — today that means a submission whose outcome was
@@ -576,8 +827,39 @@ There is no monitoring stack configured in this project and none is
 pretended: the exit code and `--json` are the integration points for
 whatever a deployment actually has.
 
+## Environment
+
+`.env.example` documents every variable and why it holds the value it does.
+The ones that must change before a deployment faces real customers:
+
+| Variable | Development | Production | Because |
+|---|---|---|---|
+| `APP_ENV` | `local` | `production` | Several seeders and the log OTP sender key off it |
+| `APP_DEBUG` | `true` | **`false`** | With debug on, every error carries file paths and a stack trace |
+| `APP_KEY` | generated | generated | Never share one between environments |
+| `LOG_LEVEL` | `debug` | `info` | Debug is noisy and likelier to capture something that should not be kept |
+| `DB_CONNECTION` | `mysql` | `mysql` | SQLite is for the test suite |
+| `DB_TIMEZONE` | `+00:00` | `+00:00` | MySQL converts `TIMESTAMP` from the session zone; unpinned, every stored time shifts |
+| `SESSION_ENCRYPT` | `false` | **`true`** | Sessions are stored in the database, and backups copy that table |
+| `SESSION_SECURE_COOKIE` | unset | **`true`** | Otherwise an admin session travels in clear text |
+| `FYNNEDGE_OTP_DRIVER` | `log` | a real SMS provider | The log sender throws in production |
+| `FYNNEDGE_OTP_DEV_HINT` | `true` | **unset** | On, the API returns the code it just issued |
+| `TRUSTED_PROXIES` | empty | your load balancer | Untrusted, every customer presents as the proxy and the OTP limits collapse into one bucket |
+| `FYNNEDGE_ADMIN_EMAIL` / `_PASSWORD` | unused | set, or no admin | There is no default production password |
+
+No secret belongs in the repository. `.env` is gitignored; `.env.example`
+carries names and explanations, never values.
+
 ## Notes for going live
 
+- **The production checklist is the Environment table above.** None of it is
+  set for you, and two of the entries — `APP_DEBUG` and
+  `FYNNEDGE_OTP_DEV_HINT` — disclose information if left at their
+  development values.
+- **Remove the demo data.** `php artisan demo:purge --admin` takes out the
+  four invented customers and the development administrator. A database that
+  has been used for development otherwise carries invented loan applications
+  into every report run afterwards.
 - **Empty maps**: return `(object) []`, not `[]`. PHP encodes an empty
   associative array as a JSON array, which breaks strict parsers.
 - **Retention periods are unset, and unset means keep.** FynnEdge does not

@@ -140,7 +140,12 @@ return new class extends Migration
 
             // The customer-facing read: this product's published versions,
             // newest effective first.
-            $table->index(['catalogue_product_id', 'published_at', 'effective_from']);
+            // Named explicitly: the generated name would be 71 characters,
+            // and MySQL caps an identifier at 64.
+            $table->index(
+                ['catalogue_product_id', 'published_at', 'effective_from'],
+                'product_versions_product_published_effective_index',
+            );
         });
 
         Schema::create('catalogue_audit_events', function (Blueprint $table) {

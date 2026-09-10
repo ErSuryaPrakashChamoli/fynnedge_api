@@ -28,9 +28,25 @@ class LogOtpSender implements OtpSender
         ]);
     }
 
+    /**
+     * The code, but only where somebody has said out loud that is wanted.
+     *
+     * Two independent conditions, because the environment check alone fails
+     * open: APP_ENV unset, misspelled, or set to `prod` on a real server is
+     * not production as far as Laravel is concerned, and this method would
+     * then hand the code for any mobile number to any caller.
+     */
     public function developmentHint(string $code): ?string
     {
-        return app()->environment('production') ? null : $code;
+        if (app()->environment('production')) {
+            return null;
+        }
+
+        if (! config('fynnedge.otp.expose_dev_hint')) {
+            return null;
+        }
+
+        return $code;
     }
 
     /** Never write a full number to the log. */

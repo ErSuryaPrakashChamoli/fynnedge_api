@@ -9,6 +9,7 @@ use App\Domain\Support\ResolvedContext;
 use App\Domain\Support\SupportCaseStatus;
 use App\Domain\Support\SupportCategory;
 use App\Domain\Support\SupportPriority;
+use App\Models\AdminUser;
 use App\Models\SupportCase;
 use App\Models\SupportCaseEvent;
 use App\Models\SupportCaseMessage;
@@ -167,6 +168,59 @@ class SupportCaseService
                     SupportCaseStatus::InProgress,
                     'Your information was received',
                     SupportCaseEvent::SOURCE_CUSTOMER,
+                );
+            }
+
+            return $message;
+        });
+    }
+
+    /**
+     * FynnEdge answers.
+     *
+     * The mirror of addCustomerMessage, and it lives here for the same
+     * reason that one does: `author_type` is written by the server, from
+     * the side that actually acted, and never taken from a request. There
+     * is deliberately no customer-facing route to this — an advisor message
+     * reachable with a customer token would let somebody author FynnEdge's
+     * half of their own case. Today the admin panel is the only caller; an
+     * advisor API would call this same method rather than write its own.
+     *
+     * Answering a case that is merely open acknowledges it in passing,
+     * because somebody has now looked at it and the customer should see
+     * that reflected rather than being told nothing has happened.
+     */
+    public function addAdvisorMessage(
+        SupportCase $case,
+        AdminUser $advisor,
+        string $body,
+    ): SupportCaseMessage {
+        if ($case->status()->isTerminal()) {
+            throw new CaseNotOpen;
+        }
+
+        return DB::transaction(function () use ($case, $advisor, $body) {
+            /** @var SupportCaseMessage $message */
+            $message = $case->messages()->make(['body' => $body]);
+
+            $message->forceFill([
+                'author_type' => SupportCaseMessage::AUTHOR_ADVISOR,
+                'author_id' => $advisor->getKey(),
+            ])->save();
+
+            $case->forceFill(['last_advisor_update_at' => now()])->save();
+
+            $case->recordEvent(
+                'FynnEdge replied',
+                SupportCaseEvent::SOURCE_ADVISOR,
+            );
+
+            if ($case->status() === SupportCaseStatus::Open) {
+                $this->transition(
+                    $case,
+                    SupportCaseStatus::Acknowledged,
+                    'FynnEdge is looking into this',
+                    SupportCaseEvent::SOURCE_ADVISOR,
                 );
             }
 

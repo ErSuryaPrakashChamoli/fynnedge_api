@@ -2,6 +2,7 @@
 
 namespace App\Services\Catalogue;
 
+use App\Models\AdminUser;
 use App\Models\CatalogueAuditEvent;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
@@ -38,12 +39,12 @@ class CatalogueAuditor
     public const VERSION_PUBLISHED = 'version_published';
 
     /**
-     * How this change arrived, when no authenticated user made it.
+     * How this change arrived, when nobody is signed in to have made it.
      *
-     * FynnEdge has no administrator accounts: the only way to hold a token
-     * is to verify an OTP, and everyone who does is a customer. Catalogue
-     * changes therefore come from an operator with server access, and the
-     * honest record of that is the console, not a fabricated user id.
+     * Catalogue changes come from three places now: a console command run
+     * by an operator with server access, a member of staff in the admin
+     * panel, or nobody — and the label has to say which. A fabricated user
+     * id would be worse than an honest "console".
      */
     private ?string $consoleActor = null;
 
@@ -65,6 +66,30 @@ class CatalogueAuditor
     ): CatalogueAuditEvent {
         /** @var User|null $user */
         $user = Auth::user();
+
+        /*
+         * Staff are checked for first, and recorded by label alone.
+         *
+         * `actor_user_id` is a foreign key into `users`, which holds
+         * customers; an administrator's id there would resolve to whichever
+         * customer happens to share the number, and an audit trail that
+         * names the wrong person is worse than one that names nobody.
+         * Their identity goes in the label, which is free text, until
+         * somebody decides a queryable staff column is worth a migration.
+         */
+        $admin = Auth::guard('admin')->user();
+
+        if ($admin instanceof AdminUser) {
+            return CatalogueAuditEvent::create([
+                'actor_user_id' => null,
+                'actor_label' => 'admin:'.$admin->getKey().' '.$admin->email,
+                'entity_type' => $entityType,
+                'entity_id' => $entityId,
+                'action' => $action,
+                'before' => $before,
+                'after' => $after,
+            ]);
+        }
 
         return CatalogueAuditEvent::create([
             'actor_user_id' => $user?->id,

@@ -59,6 +59,25 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
+
+            /*
+             * The session time zone, pinned to UTC.
+             *
+             * Laravel writes every datetime as UTC, but MySQL converts a
+             * TIMESTAMP column from the session zone on write and back on
+             * read. This server's session zone is SYSTEM, which resolves to
+             * IST here, so an unpinned connection stores created_at,
+             * updated_at and the other timestamp columns five and a half
+             * hours away from the value Laravel sent.
+             *
+             * Eloquent still round-trips consistently, which is why this
+             * hides: it shows up in Filament, in reporting, in raw SQL
+             * compared against NOW(), and on the day the server's zone
+             * changes. Pinned here rather than left to the deployment,
+             * because the wrong answer is a silent one.
+             */
+            'timezone' => env('DB_TIMEZONE', '+00:00'),
+
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],

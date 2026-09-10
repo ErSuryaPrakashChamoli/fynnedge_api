@@ -84,7 +84,12 @@ return new class extends Migration
              * accumulating, so there is never an ambiguous pair of current
              * documents for the same requirement.
              */
-            $table->unique(['loan_application_id', 'requirement_code']);
+            // Named explicitly: the generated name would be 65 characters,
+            // and MySQL caps an identifier at 64.
+            $table->unique(
+                ['loan_application_id', 'requirement_code'],
+                'app_docs_application_requirement_unique',
+            );
             $table->index(['user_id', 'status']);
         });
     }

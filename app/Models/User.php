@@ -122,8 +122,17 @@ class User extends Authenticatable
      */
     public function ensureProfiles(): void
     {
-        $this->customerProfile()->firstOrCreate([]);
-        $this->financialProfile()->firstOrCreate([]);
+        /*
+         * createOrFirst rather than firstOrCreate.
+         *
+         * Both rows carry a unique index on user_id, and firstOrCreate looks
+         * before it inserts — so two sign-ins arriving together for the same
+         * customer both find nothing and both insert, and the loser raises
+         * on the index instead of getting the row that already exists.
+         * createOrFirst inserts inside a savepoint and reads the winner back.
+         */
+        $this->customerProfile()->createOrFirst([]);
+        $this->financialProfile()->createOrFirst([]);
         $this->refresh();
     }
 

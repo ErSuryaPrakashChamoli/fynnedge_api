@@ -32,6 +32,19 @@ class DocumentScanReview extends Model
         return $this->belongsTo(DocumentScan::class, 'document_scan_id');
     }
 
+    /**
+     * Who answered.
+     *
+     * The scan already knows its customer, so nothing in the API needs this
+     * — it is here because the column and its foreign key exist, and a real
+     * relation the model does not describe is the kind of gap the admin
+     * panel discovers the hard way.
+     */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
     public function decision(): ReviewDecision
     {
         return ReviewDecision::from($this->decision);

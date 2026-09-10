@@ -50,6 +50,12 @@ class LoanApplication extends Model
             'projected_emi_ratio' => 'decimal:2',
             'tenure_months' => 'integer',
             'is_simulated' => 'boolean',
+
+            // A date column, and the only one on this model that was not
+            // cast. Written as a plain string today and read by nothing,
+            // so this changes no output — it stops the attribute coming
+            // back as a string the first time something does read it.
+            'product_version_effective_from' => 'date',
             'acknowledged_at' => 'datetime',
             'submitted_at' => 'datetime',
             'cancelled_at' => 'datetime',

@@ -368,5 +368,24 @@ return [
         'ttl_seconds' => (int) env('FYNNEDGE_OTP_TTL', 300),
         'resend_after_seconds' => 30,
         'max_attempts' => 5,
+
+        /*
+         * Whether the API may return the code it just issued.
+         *
+         * Off unless somebody turns it on. The environment check that used
+         * to be the only gate is a check that something else is *not* true,
+         * and it fails open: a production box that comes up with APP_ENV
+         * unset, misspelled, or reading `prod` hands the code for any
+         * mobile number to whoever asks for it. Nothing about that failure
+         * is visible from the outside, and the number's owner never learns
+         * their account was reachable.
+         *
+         * An explicit opt-in fails the other way. A deployment that forgets
+         * this variable loses a development convenience, which somebody
+         * notices in a minute; the alternative loses accounts.
+         *
+         * Both conditions still have to hold: this, and not production.
+         */
+        'expose_dev_hint' => (bool) env('FYNNEDGE_OTP_DEV_HINT', false),
     ],
 ];

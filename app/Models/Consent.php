@@ -75,14 +75,29 @@ class Consent extends Model
         return $this->status() === ConsentStatus::Granted;
     }
 
-    /** The most recent decision per type — the customer's position now. */
+    /**
+     * The most recent decision per type — the customer's position now.
+     *
+     * The inner table is aliased on purpose. Written as an unaliased
+     * `from('consents')`, the inner name shadows the outer one, so
+     * `consents.user_id` resolves to the subquery's own row and the
+     * correlation collapses into `user_id = user_id` — true for everybody.
+     * The subquery then returns the newest id per type across the whole
+     * table, and a customer's own decision disappears from their position
+     * the moment any other customer decides the same type later.
+     *
+     * It fails closed rather than open — a granted consent reads as absent,
+     * never the reverse — but a customer being told they never agreed to
+     * something they did agree to is its own kind of wrong, and with one
+     * customer in the database it is invisible.
+     */
     public function scopeLatestPerType(Builder $query): Builder
     {
         return $query->whereIn('id', function ($sub) {
             $sub->selectRaw('max(id)')
-                ->from('consents')
-                ->whereColumn('user_id', 'consents.user_id')
-                ->groupBy('type');
+                ->from('consents as latest_consents')
+                ->whereColumn('latest_consents.user_id', 'consents.user_id')
+                ->groupBy('latest_consents.type');
         });
     }
 }

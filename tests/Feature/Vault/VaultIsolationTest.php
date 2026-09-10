@@ -108,17 +108,74 @@ class VaultIsolationTest extends TestCase
         );
     }
 
+    /**
+     * Routes that serve a download and are not a customer's vault document.
+     *
+     * Each carries the reason it is allowed to exist, because the value of
+     * this test is that a new way to get bytes out of FynnEdge has to be
+     * argued for rather than merely added.
+     *
+     * Both entries below are registered unconditionally by filament/actions
+     * as soon as the package is installed — the panel declares no export or
+     * import action, and the `exports` and `imports` tables this deployment
+     * would need are not migrated, so neither route can resolve a record.
+     * If they ever could, they serve Filament's own export files rather
+     * than the vault: a different model, a different disk, and the
+     * controller aborts 401 for a guest and 403 unless the export belongs
+     * to the administrator asking for it.
+     *
+     * @var array<string, string>
+     */
+    private const NOT_A_CUSTOMER_DOCUMENT = [
+        'filament/exports/{export}/download' => 'Filament export files, owner-checked, '
+            .'and inert here: no export action is declared and the table is not migrated.',
+
+        'filament/imports/{import}/failed-rows/download' => 'The failed rows of a '
+            .'Filament import, same guard and same reason.',
+    ];
+
     public function test_the_only_way_to_a_document_is_the_owner_endpoint(): void
     {
         $routes = collect(app('router')->getRoutes()->getRoutes())
             ->filter(fn ($route) => str_contains($route->uri(), 'download'))
             ->map(fn ($route) => $route->uri())
+            ->reject(fn (string $uri) => array_key_exists($uri, self::NOT_A_CUSTOMER_DOCUMENT))
             ->values();
 
         $this->assertSame(
             ['api/v1/documents/{document}/download'],
             $routes->all(),
+            'a route serves downloads that is neither the customer vault endpoint '
+            .'nor listed with a reason in NOT_A_CUSTOMER_DOCUMENT',
         );
+    }
+
+    /**
+     * The exempted routes are exempt because they never hand a guest bytes,
+     * so that is what this checks. A future Filament release that dropped
+     * its ownership test would leave the exemption above quietly untrue.
+     *
+     * Measured, these currently answer 500 rather than 401: route-model
+     * binding looks for the `exports` row before the controller's auth
+     * check runs, and the table is not migrated in this deployment. Untidy,
+     * and not a disclosure — the request ends before anything is read from
+     * a disk. Enabling exports in a later phase means migrating those
+     * tables, at which point the answer becomes the 401 the controller
+     * intends, and this assertion still holds.
+     */
+    public function test_the_filament_download_routes_never_serve_a_guest(): void
+    {
+        foreach (array_keys(self::NOT_A_CUSTOMER_DOCUMENT) as $uri) {
+            $probe = str_replace(['{export}', '{import}'], '1', $uri);
+
+            $status = $this->get('/'.$probe)->getStatusCode();
+
+            $this->assertGreaterThanOrEqual(
+                400,
+                $status,
+                "{$uri} answered an unauthenticated caller with {$status}",
+            );
+        }
     }
 
     private function normalise(?string $path): string

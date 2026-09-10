@@ -19,6 +19,11 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <!-- The suite reads the issued code out of the send-otp response to
+             drive the verify step, so it opts in explicitly — which is the
+             whole contract: the hint is returned because something asked
+             for it, never because the environment merely is not production. -->
+        <env name="FYNNEDGE_OTP_DEV_HINT" value="true"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
