@@ -1,0 +1,544 @@
+# FynnEdge — Flutter ↔ API screen flow
+
+How the Flutter application talks to the Laravel API, screen by screen.
+
+> Generated from source: `../fynnedge/lib` and `../fynnedge-api`. Every endpoint,
+> screen, route and service method below was extracted from the code, not written
+> from memory. Examples use reserved test numbers and invented data only.
+
+Generated 2026-09-10.
+
+## 1. Overview
+
+| | |
+|---|---|
+| Flutter screens | 41 |
+| Navigation routes (GoRouter) | 45 |
+| Flutter service classes calling the API | 19 |
+| Distinct API call sites in Flutter | 70 |
+| Unique endpoints Flutter calls | 70 |
+| Laravel API routes | 82 |
+| Laravel operations (method × path) | 84 |
+| Flutter calls matched to a Laravel route | 70 / 70 |
+| Flutter calls with no matching route | 0 |
+
+## 2. Architecture
+
+```text
+Screen (lib/features/**)
+      │  ref.read(xProvider)
+      ▼
+Riverpod controller / repository
+      ▼
+Service (lib/data/services)
+      ▼
+ApiClient  ──►  Authorization: Bearer <token>
+      ▼
+Laravel  /api/v1/*
+      ▼
+Controller ──► Service ──► Model ──► MySQL
+```
+
+Providers are declared in `lib/app/providers.dart`; the screen never
+constructs a service itself. `ApiClient` (`lib/data/services/api_client.dart`)
+adds the bearer token, decodes the envelope and converts HTTP status codes
+into typed exceptions — see [section 8](#8-error-handling).
+
+## 3. Authentication flow
+
+```text
+SplashScreen  /            token in secure storage?
+   │  no                              │ yes
+   ▼                                  ▼
+WelcomeScreen /welcome            GET /auth/me   ──► HomeScreen /home
+   ▼
+LoginScreen  /login
+   │  tap Send OTP
+   ▼  POST /auth/send-otp            {mobile}
+OtpScreen    /otp
+   │  enter code
+   ▼  POST /auth/verify-otp          {mobile, reference, code, device_name}
+   │  ◄── {data:{token, is_new_user, expires_at, profile}}
+   ▼
+token stored ──► every later call sends Authorization: Bearer <token>
+   │
+   ├─ is_new_user  ──► /onboarding/profile ──► /onboarding/intent ──► /onboarding/goal
+   └─ returning    ──► /home
+```
+
+| Step | Method | Endpoint | Auth | Notes |
+|---|---|---|---|---|
+| Request a code | POST | `/auth/send-otp` | public | throttled `otp-send` (3/min per number) |
+| Verify | POST | `/auth/verify-otp` | public | throttled `otp-verify`; returns the token |
+| Confirm a stored token | GET | `/auth/me` | bearer | used on launch |
+| Sign out | POST | `/auth/logout` | bearer | revokes **this device's** token only |
+
+Tokens last 30 days. `dev_hint` appears in the `send-otp` response **only** in
+non-production builds with the development flag on; production never returns it.
+
+## 4. Screen inventory
+
+| Route | Screen | File | Calls API |
+|---|---|---|---|
+| `/` | SplashScreen | `lib/features/splash/splash_screen.dart` | no |
+| `/welcome` | WelcomeScreen | `lib/features/welcome/welcome_screen.dart` | no |
+| `/login` | LoginScreen | `lib/features/auth/login_screen.dart` | yes |
+| `/otp` | OtpScreen | `lib/features/auth/otp_screen.dart` | yes |
+| `/onboarding/profile` | BasicProfileScreen | `lib/features/onboarding/basic_profile_screen.dart` | yes |
+| `/onboarding/intent` | IntentScreen | `lib/features/onboarding/intent_screen.dart` | no |
+| `/onboarding/goal` | GoalScreen | `lib/features/onboarding/goal_screen.dart` | no |
+| `/home` | HomeScreen | `lib/features/home/home_screen.dart` | yes |
+| `/explore` | ExploreScreen | `lib/features/explore/explore_screen.dart` | no |
+| `/ai` | AiScreen | `lib/features/ai/ai_screen.dart` | yes |
+| `/applications` | ApplicationsScreen | `lib/features/applications/applications_screen.dart` | yes |
+| `/profile` | ProfileScreen | `lib/features/profile/profile_screen.dart` | yes |
+| `/loan-discovery` | LoanDiscoveryScreen | `lib/features/loans/loan_discovery_screen.dart` | no |
+| `/loan-options` | LoanOptionsScreen | `lib/features/loans/loan_options_screen.dart` | yes |
+| `/loan/:id` | LoanDetailScreen | `lib/features/loans/loan_detail_screen.dart` | yes |
+| `/apply/:id` | ApplicationReviewScreen | `lib/features/applications/application_review_screen.dart` | yes |
+| `/fynn-twin` | TwinScreen | `lib/features/twin/twin_screen.dart` | yes |
+| `/compare` | CompareScreen | `lib/features/loans/compare_screen.dart` | yes |
+| `/fynn-trust/:id` | FynnTrustScreen | `lib/features/loans/fynn_trust_screen.dart` | yes |
+| `/fynn-mirror/:id` | FynnMirrorScreen | `lib/features/loans/fynn_mirror_screen.dart` | yes |
+| `/fynnlab` | FynnLabScreen | `lib/features/fynnlab/fynnlab_screen.dart` | no |
+| `emi` | EmiCalculatorScreen | `lib/features/fynnlab/emi_calculator_screen.dart` | yes |
+| `affordability` | AffordabilityScreen | `—` | no |
+| `prepayment` | PrepaymentScreen | `—` | no |
+| `balance-transfer` | BalanceTransferScreen | `—` | no |
+| `emergency-fund` | EmergencyFundScreen | `—` | no |
+| `/fynn-score` | FynnScoreScreen | `lib/features/score/fynn_score_screen.dart` | yes |
+| `/applications/:id` | ApplicationDetailScreen | `lib/features/applications/application_detail_screen.dart` | yes |
+| `/vault` | VaultScreen | `lib/features/vault/vault_screen.dart` | yes |
+| `/scan` | ScanScreen | `lib/features/vault/scan_screen.dart` | yes |
+| `/scan/:id` | FynnScanScreen | `lib/features/vault/fynn_scan_screen.dart` | yes |
+| `/kyc/:id` | KycScreen | `lib/features/vault/kyc_screen.dart` | yes |
+| `/second-opinion` | SecondOpinionScreen | `lib/features/vault/second_opinion_screen.dart` | no |
+| `/financial-profile` | FinancialProfileScreen | `lib/features/profile/financial_profile_screen.dart` | yes |
+| `/goals` | GoalsScreen | `lib/features/profile/goals_screen.dart` | yes |
+| `/notifications` | NotificationsScreen | `lib/features/profile/notifications_screen.dart` | yes |
+| `/credit` | CreditScreen | `lib/features/credit/credit_screen.dart` | yes |
+| `/privacy` | PrivacyScreen | `lib/features/profile/privacy_screen.dart` | yes |
+| `/decisions` | DecisionHistoryScreen | `lib/features/decisions/decision_history_screen.dart` | yes |
+| `/review` | ReviewScreen | `lib/features/review/review_screen.dart` | yes |
+| `/decisions/:id` | DecisionDetailScreen | `lib/features/decisions/decision_detail_screen.dart` | yes |
+| `/financial-story` | FinancialTimelineScreen | `lib/features/intelligence/financial_timeline_screen.dart` | yes |
+| `/support` | SupportScreen | `lib/features/support/support_screen.dart` | yes |
+| `/support/new` | SupportRequestScreen | `lib/features/support/support_request_screen.dart` | yes |
+| `/support/cases/:id` | SupportCaseScreen | `lib/features/support/support_case_screen.dart` | yes |
+
+## 5. Service → endpoint map
+
+The precise mapping: every API call in the Flutter code, by the Dart method that makes it.
+
+### Customer & profile
+
+| Dart method | Method | Endpoint | Laravel controller | Auth |
+|---|---|---|---|---|
+| `ConsentService.getConsents()` | GET | `/consents` | ConsentController@index | bearer |
+| `ConsentService.grant()` | POST | `/consents` | ConsentController@store | bearer |
+| `ConsentService.getHistory()` | GET | `/consents/history` | ConsentController@history | bearer |
+| `ConsentService.withdraw()` | POST | `/consents/{id}/withdraw` | ConsentController@withdraw | bearer |
+| `ProfileService.getFinancialProfile()` | GET | `/financial-profile` | ProfileController@financial | bearer |
+| `ProfileService.updateFinancialProfile()` | PUT | `/financial-profile` | ProfileController@updateFinancial | bearer |
+| `ProfileService.getFynnScore()` | GET | `/fynn-score` | ScoreController@show | bearer |
+| `ProfileService.getGoals()` | GET | `/goals` | GoalController@index | bearer |
+| `ProfileService.createGoal()` | POST | `/goals` | GoalController@store | bearer |
+| `ProfileService.deleteGoal()` | DELETE | `/goals/{id}` | GoalController@destroy | bearer |
+| `ProfileService.updateGoal()` | PUT | `/goals/{id}` | GoalController@update | bearer |
+| `HomeService.getSnapshot()` | GET | `/home` | HomeController@index | bearer |
+| `ProfileService.getProfile()` | GET | `/profile` | ProfileController@show | bearer |
+| `ProfileService.updateProfile()` | PUT | `/profile` | ProfileController@update | bearer |
+
+### Financial
+
+| Dart method | Method | Endpoint | Laravel controller | Auth |
+|---|---|---|---|---|
+| `DecisionService.getDecisions()` | GET | `/decisions` | DecisionController@index | bearer |
+| `DecisionService.getDecision()` | GET | `/decisions/{id}` | DecisionController@show | bearer |
+| `IntelligenceService.getIntelligence()` | GET | `/intelligence` | IntelligenceController@show | bearer |
+| `IntelligenceService.getTimeline()` | GET | `/intelligence/timeline` | IntelligenceController@timeline | bearer |
+
+### Products & matching
+
+| Dart method | Method | Endpoint | Laravel controller | Auth |
+|---|---|---|---|---|
+| `MatchService.findMatches()` | GET | `/fynn-match` | MatchController@index | bearer |
+| `MatchService.simulate()` | GET | `/fynn-match/{id}` | MatchController@show | bearer |
+| `CatalogService.getProducts()` | GET | `/products` | ProductController@index | bearer |
+| `CatalogService.getProduct()` | GET | `/products/{id}` | ProductController@show | bearer |
+
+### Applications
+
+| Dart method | Method | Endpoint | Laravel controller | Auth |
+|---|---|---|---|---|
+| `ApplicationDocumentsService.checklistFor()` | GET | `/applications/{id}/documents` | ApplicationDocumentController@index | bearer |
+| `ApplicationDocumentsService.attach()` | POST | `/applications/{id}/documents` | ApplicationDocumentController@store | bearer |
+| `ApplicationDocumentsService.detach()` | DELETE | `/applications/{id}/documents/{id}` | ApplicationDocumentController@destroy | bearer |
+| `ApplicationDocumentsService.review()` | POST | `/applications/{id}/documents/{id}/review` | ApplicationDocumentController@review | bearer |
+| `SubmissionService.statusFor()` | GET | `/applications/{id}/submission` | ApplicationSubmissionController@show | bearer |
+| `SubmissionService.submit()` | POST | `/applications/{id}/submission` | ApplicationSubmissionController@store | bearer |
+
+### Documents & verification
+
+| Dart method | Method | Endpoint | Laravel controller | Auth |
+|---|---|---|---|---|
+| `CreditService.check()` | POST | `/credit/check` | CreditController@check | bearer |
+| `CreditService.getStatus()` | GET | `/credit/status` | CreditController@status | bearer |
+| `KycService.statusFor()` | GET | `/documents/{id}/kyc` | KycController@show | bearer |
+| `KycService.verify()` | POST | `/documents/{id}/kyc` | KycController@store | bearer |
+| `KycService.resolve()` | POST | `/documents/{id}/kyc/resolve` | KycController@resolve | bearer |
+| `DocumentScanService.statusFor()` | GET | `/documents/{id}/scan` | DocumentScanController@show | bearer |
+| `DocumentScanService.scan()` | POST | `/documents/{id}/scan` | DocumentScanController@store | bearer |
+| `DocumentScanService.review()` | POST | `/documents/{id}/scan/review` | DocumentScanController@review | bearer |
+
+### Notifications
+
+| Dart method | Method | Endpoint | Laravel controller | Auth |
+|---|---|---|---|---|
+| `NotificationService.getPreferences()` | GET | `/notifications/preferences` | NotificationPreferenceController@show | bearer |
+| `NotificationService.updatePreferences()` | PUT | `/notifications/preferences` | NotificationPreferenceController@update | bearer |
+| `NotificationService.markAllRead()` | POST | `/notifications/read-all` | NotificationController@markAllRead | bearer |
+| `NotificationService.getUnreadCount()` | GET | `/notifications/unread-count` | NotificationController@unreadCount | bearer |
+| `NotificationService.markRead()` | POST | `/notifications/{id}/read` | NotificationController@markRead | bearer |
+
+### Support
+
+| Dart method | Method | Endpoint | Laravel controller | Auth |
+|---|---|---|---|---|
+| `SupportService.getCases()` | GET | `/support/cases` | SupportController@index | bearer |
+| `SupportService.createCase()` | POST | `/support/cases` | SupportController@store | bearer |
+| `SupportService.getCase()` | GET | `/support/cases/{id}` | SupportController@show | bearer |
+| `SupportService.closeCase()` | POST | `/support/cases/{id}/close` | SupportController@close | bearer |
+| `SupportService.addMessage()` | POST | `/support/cases/{id}/messages` | SupportController@addMessage | bearer |
+| `SupportService.getCategories()` | GET | `/support/categories` | SupportController@categories | bearer |
+
+### FynnAI
+
+| Dart method | Method | Endpoint | Laravel controller | Auth |
+|---|---|---|---|---|
+| `AiReply.getConversations()` | GET | `/ai/conversations` | AiController@index | bearer |
+| `AiReply.startConversation()` | POST | `/ai/conversations` | AiController@store | bearer |
+| `AiReply.deleteConversation()` | DELETE | `/ai/conversations/{id}` | AiController@destroy | bearer |
+| `AiReply.getConversation()` | GET | `/ai/conversations/{id}` | AiController@show | bearer |
+| `AiReply.send()` | POST | `/ai/conversations/{id}/messages` | AiController@send | bearer |
+
+### Other
+
+| Dart method | Method | Endpoint | Laravel controller | Auth |
+|---|---|---|---|---|
+| `ApplicationDraft.getApplications()` | GET | `/applications` | ApplicationController@index | bearer |
+| `ApplicationDraft.getApplication()` | GET | `/applications/{id}` | ApplicationController@show | bearer |
+| `ApplicationDraft.create()` | POST | `/applications` | ApplicationController@store | bearer |
+| `ApplicationDraft.update()` | PUT | `/applications/{id}` | ApplicationController@update | bearer |
+| `ApplicationDraft.submit()` | POST | `/applications/{id}/submit` | ApplicationController@submit | bearer |
+| `ApplicationDraft.cancel()` | POST | `/applications/{id}/cancel` | ApplicationController@cancel | bearer |
+| `OtpChallenge.sendOtp()` | POST | `/auth/send-otp` | AuthController@sendOtp | public |
+| `OtpChallenge.verifyOtp()` | POST | `/auth/verify-otp` | AuthController@verifyOtp | public |
+| `OtpChallenge.logout()` | POST | `/auth/logout` | AuthController@logout | bearer |
+| `OtpChallenge.currentUser()` | GET | `/auth/me` | AuthController@me | bearer |
+| `DocumentUpload.getDocuments()` | GET | `/documents` | DocumentController@index | bearer |
+| `DocumentUpload.getDocument()` | GET | `/documents/{id}` | DocumentController@show | bearer |
+| `DocumentUpload.getLimits()` | GET | `/documents/limits` | DocumentController@limits | bearer |
+| `DocumentUpload.upload()` | POST | `/documents` | DocumentController@store | bearer |
+| `DocumentUpload.download()` | GET | `/documents/{id}/download` | DocumentController@download | bearer |
+| `DocumentUpload.delete()` | DELETE | `/documents/{id}` | DocumentController@destroy | bearer |
+| `TwinCapabilities.capabilities()` | GET | `/fynn-twin` | FynnTwinController@index | bearer |
+| `TwinCapabilities.simulate()` | POST | `/fynn-twin/simulate` | FynnTwinController@simulate | bearer |
+
+## 6. Screen → API matrix
+
+Endpoints reachable from each screen, resolved through its controllers and the
+providers they read. A screen that shares a controller with another will show
+that controller's endpoints too — this is a reachability map, not a per-tap trace.
+
+| Screen | Route | Controllers | Endpoints reachable |
+|---|---|---|---|
+| SplashScreen | `/` | — | 0 |
+| WelcomeScreen | `/welcome` | — | 0 |
+| LoginScreen | `/login` | — | 4 |
+| OtpScreen | `/otp` | — | 4 |
+| BasicProfileScreen | `/onboarding/profile` | `home_controller.dart` | 10 |
+| IntentScreen | `/onboarding/intent` | — | 0 |
+| GoalScreen | `/onboarding/goal` | — | 0 |
+| HomeScreen | `/home` | `intelligence_controller.dart`, `notification_controller.dart`, `home_controller.dart` | 27 |
+| ExploreScreen | `/explore` | — | 0 |
+| AiScreen | `/ai` | `consent_controller.dart`, `ai_controller.dart` | 30 |
+| ApplicationsScreen | `/applications` | `application_controller.dart` | 6 |
+| ProfileScreen | `/profile` | `home_controller.dart`, `profile_controller.dart` | 10 |
+| LoanDiscoveryScreen | `/loan-discovery` | — | 0 |
+| LoanOptionsScreen | `/loan-options` | `loan_controller.dart` | 2 |
+| LoanDetailScreen | `/loan/:id` | `loan_controller.dart` | 2 |
+| ApplicationReviewScreen | `/apply/:id` | `loan_controller.dart`, `application_controller.dart` | 8 |
+| TwinScreen | `/fynn-twin` | `loan_controller.dart`, `twin_controller.dart` | 4 |
+| CompareScreen | `/compare` | `loan_controller.dart` | 2 |
+| FynnTrustScreen | `/fynn-trust/:id` | `loan_controller.dart` | 2 |
+| FynnMirrorScreen | `/fynn-mirror/:id` | `profile_controller.dart`, `loan_controller.dart` | 11 |
+| FynnLabScreen | `/fynnlab` | — | 0 |
+| EmiCalculatorScreen | `emi` | `profile_controller.dart` | 9 |
+| FynnScoreScreen | `/fynn-score` | `profile_controller.dart` | 9 |
+| ApplicationDetailScreen | `/applications/:id` | `application_controller.dart` | 6 |
+| VaultScreen | `/vault` | `vault_controller.dart` | 6 |
+| ScanScreen | `/scan` | `add_document_controller.dart`, `vault_controller.dart` | 9 |
+| FynnScanScreen | `/scan/:id` | `scan_controller.dart`, `vault_controller.dart` | 9 |
+| KycScreen | `/kyc/:id` | `kyc_controller.dart`, `vault_controller.dart` | 9 |
+| SecondOpinionScreen | `/second-opinion` | — | 0 |
+| FinancialProfileScreen | `/financial-profile` | `financial_profile_controller.dart` | 9 |
+| GoalsScreen | `/goals` | `intelligence_controller.dart`, `goals_controller.dart` | 35 |
+| NotificationsScreen | `/notifications` | `notification_controller.dart` | 26 |
+| CreditScreen | `/credit` | `credit_controller.dart` | 2 |
+| PrivacyScreen | `/privacy` | `consent_controller.dart` | 4 |
+| DecisionHistoryScreen | `/decisions` | `decision_controller.dart` | 26 |
+| ReviewScreen | `/review` | `decision_controller.dart`, `intelligence_controller.dart` | 26 |
+| DecisionDetailScreen | `/decisions/:id` | `decision_controller.dart` | 26 |
+| FinancialTimelineScreen | `/financial-story` | `intelligence_controller.dart` | 26 |
+| SupportScreen | `/support` | `support_controller.dart` | 26 |
+| SupportRequestScreen | `/support/new` | `support_controller.dart` | 26 |
+| SupportCaseScreen | `/support/cases/:id` | `support_controller.dart` | 26 |
+
+## 7. API → screen matrix
+
+Which Flutter code calls each endpoint — read this before changing one.
+
+| Method | Endpoint | Called by | Laravel controller | Throttle |
+|---|---|---|---|---|
+| DELETE | `/ai/conversations/{id}` | `AiReply.deleteConversation()` | AiController@destroy | api |
+| DELETE | `/applications/{id}/documents/{id}` | `ApplicationDocumentsService.detach()` | ApplicationDocumentController@destroy | api |
+| DELETE | `/documents/{id}` | `DocumentUpload.delete()` | DocumentController@destroy | api, vault-write |
+| DELETE | `/goals/{id}` | `ProfileService.deleteGoal()` | GoalController@destroy | api |
+| GET | `/ai/conversations` | `AiReply.getConversations()` | AiController@index | api |
+| GET | `/ai/conversations/{id}` | `AiReply.getConversation()` | AiController@show | api |
+| GET | `/applications` | `ApplicationDraft.getApplications()` | ApplicationController@index | api |
+| GET | `/applications/{id}` | `ApplicationDraft.getApplication()` | ApplicationController@show | api |
+| GET | `/applications/{id}/documents` | `ApplicationDocumentsService.checklistFor()` | ApplicationDocumentController@index | api |
+| GET | `/applications/{id}/submission` | `SubmissionService.statusFor()` | ApplicationSubmissionController@show | api |
+| GET | `/auth/me` | `OtpChallenge.currentUser()` | AuthController@me | api |
+| GET | `/consents` | `ConsentService.getConsents()` | ConsentController@index | api |
+| GET | `/consents/history` | `ConsentService.getHistory()` | ConsentController@history | api |
+| GET | `/credit/status` | `CreditService.getStatus()` | CreditController@status | api |
+| GET | `/decisions` | `DecisionService.getDecisions()` | DecisionController@index | api |
+| GET | `/decisions/{id}` | `DecisionService.getDecision()` | DecisionController@show | api |
+| GET | `/documents` | `DocumentUpload.getDocuments()` | DocumentController@index | api |
+| GET | `/documents/limits` | `DocumentUpload.getLimits()` | DocumentController@limits | api |
+| GET | `/documents/{id}` | `DocumentUpload.getDocument()` | DocumentController@show | api |
+| GET | `/documents/{id}/download` | `DocumentUpload.download()` | DocumentController@download | api |
+| GET | `/documents/{id}/kyc` | `KycService.statusFor()` | KycController@show | api |
+| GET | `/documents/{id}/scan` | `DocumentScanService.statusFor()` | DocumentScanController@show | api |
+| GET | `/financial-profile` | `ProfileService.getFinancialProfile()` | ProfileController@financial | api |
+| GET | `/fynn-match` | `MatchService.findMatches()` | MatchController@index | api |
+| GET | `/fynn-match/{id}` | `MatchService.simulate()` | MatchController@show | api |
+| GET | `/fynn-score` | `ProfileService.getFynnScore()` | ScoreController@show | api |
+| GET | `/fynn-twin` | `TwinCapabilities.capabilities()` | FynnTwinController@index | api |
+| GET | `/goals` | `ProfileService.getGoals()` | GoalController@index | api |
+| GET | `/home` | `HomeService.getSnapshot()` | HomeController@index | api |
+| GET | `/intelligence` | `IntelligenceService.getIntelligence()` | IntelligenceController@show | api |
+| GET | `/intelligence/timeline` | `IntelligenceService.getTimeline()` | IntelligenceController@timeline | api |
+| GET | `/notifications/preferences` | `NotificationService.getPreferences()` | NotificationPreferenceController@show | api |
+| GET | `/notifications/unread-count` | `NotificationService.getUnreadCount()` | NotificationController@unreadCount | api |
+| GET | `/products` | `CatalogService.getProducts()` | ProductController@index | api |
+| GET | `/products/{id}` | `CatalogService.getProduct()` | ProductController@show | api |
+| GET | `/profile` | `ProfileService.getProfile()` | ProfileController@show | api |
+| GET | `/support/cases` | `SupportService.getCases()` | SupportController@index | api |
+| GET | `/support/cases/{id}` | `SupportService.getCase()` | SupportController@show | api |
+| GET | `/support/categories` | `SupportService.getCategories()` | SupportController@categories | api |
+| POST | `/ai/conversations` | `AiReply.startConversation()` | AiController@store | api, ai-write |
+| POST | `/ai/conversations/{id}/messages` | `AiReply.send()` | AiController@send | api, ai-write |
+| POST | `/applications` | `ApplicationDraft.create()` | ApplicationController@store | api |
+| POST | `/applications/{id}/cancel` | `ApplicationDraft.cancel()` | ApplicationController@cancel | api |
+| POST | `/applications/{id}/documents` | `ApplicationDocumentsService.attach()` | ApplicationDocumentController@store | api |
+| POST | `/applications/{id}/documents/{id}/review` | `ApplicationDocumentsService.review()` | ApplicationDocumentController@review | api |
+| POST | `/applications/{id}/submission` | `SubmissionService.submit()` | ApplicationSubmissionController@store | api, lender-submit |
+| POST | `/applications/{id}/submit` | `ApplicationDraft.submit()` | ApplicationController@submit | api |
+| POST | `/auth/logout` | `OtpChallenge.logout()` | AuthController@logout | api |
+| POST | `/auth/send-otp` | `OtpChallenge.sendOtp()` | AuthController@sendOtp | otp-send |
+| POST | `/auth/verify-otp` | `OtpChallenge.verifyOtp()` | AuthController@verifyOtp | otp-verify |
+| POST | `/consents` | `ConsentService.grant()` | ConsentController@store | api |
+| POST | `/consents/{id}/withdraw` | `ConsentService.withdraw()` | ConsentController@withdraw | api |
+| POST | `/credit/check` | `CreditService.check()` | CreditController@check | api, credit-check |
+| POST | `/documents` | `DocumentUpload.upload()` | DocumentController@store | api, vault-write |
+| POST | `/documents/{id}/kyc` | `KycService.verify()` | KycController@store | api, kyc-write |
+| POST | `/documents/{id}/kyc/resolve` | `KycService.resolve()` | KycController@resolve | api |
+| POST | `/documents/{id}/scan` | `DocumentScanService.scan()` | DocumentScanController@store | api, scan-write |
+| POST | `/documents/{id}/scan/review` | `DocumentScanService.review()` | DocumentScanController@review | api |
+| POST | `/fynn-twin/simulate` | `TwinCapabilities.simulate()` | FynnTwinController@simulate | api |
+| POST | `/goals` | `ProfileService.createGoal()` | GoalController@store | api |
+| POST | `/notifications/read-all` | `NotificationService.markAllRead()` | NotificationController@markAllRead | api |
+| POST | `/notifications/{id}/read` | `NotificationService.markRead()` | NotificationController@markRead | api |
+| POST | `/support/cases` | `SupportService.createCase()` | SupportController@store | api, support-create |
+| POST | `/support/cases/{id}/close` | `SupportService.closeCase()` | SupportController@close | api |
+| POST | `/support/cases/{id}/messages` | `SupportService.addMessage()` | SupportController@addMessage | api, support-message |
+| PUT | `/applications/{id}` | `ApplicationDraft.update()` | ApplicationController@update | api |
+| PUT | `/financial-profile` | `ProfileService.updateFinancialProfile()` | ProfileController@updateFinancial | api |
+| PUT | `/goals/{id}` | `ProfileService.updateGoal()` | GoalController@update | api |
+| PUT | `/notifications/preferences` | `NotificationService.updatePreferences()` | NotificationPreferenceController@update | api |
+| PUT | `/profile` | `ProfileService.updateProfile()` | ProfileController@update | api |
+
+## 8. Error handling
+
+`ApiClient._send()` converts status codes into typed exceptions. Screens catch
+these and render a message; the mapping is exact and lives in one file.
+
+| Status | Flutter exception | What it means | Typical UI |
+|---|---|---|---|
+| 401 | `UnauthorizedException` | token missing, expired or revoked | session cleared, returns to `/login` |
+| 403 | `PermissionRequiredException` | a consent has not been given | prompts for the consent |
+| 404 | `NotFoundException` | not found **or not yours** — the API does not distinguish | "not found" state |
+| 422 | `ValidationException` | field errors, with `errors{field:[…]}` | inline field messages via `forField()` |
+| 429 | `RateLimitedException` | throttled; honours `Retry-After` | countdown, resend disabled |
+| 501 | `CapabilityUnavailableException` | no provider connected for that capability | explains the feature is unavailable |
+| 502/503/504 | `UpstreamUnavailableException` | provider reachable but failing | retry prompt |
+| ≥500 | `ServerException` | server fault | generic failure |
+| — | `NetworkException` | timeout or no connection | offline state |
+
+The **404-not-403** behaviour is deliberate on the API side: a record belonging
+to another customer is indistinguishable from one that does not exist, so an
+attacker cannot probe for existence. Flutter treats both the same way.
+
+## 9. Documents
+
+| Screen | Action | Method | Endpoint | Notes |
+|---|---|---|---|---|
+| VaultScreen `/vault` | list | GET | `/documents` | |
+| VaultScreen | limits | GET | `/documents/limits` | drives client-side validation before upload |
+| VaultScreen | upload | POST | `/documents` | `multipart/form-data`, field `file` + `type` + `name` |
+| VaultScreen | open | GET | `/documents/{id}` | metadata |
+| VaultScreen | download | GET | `/documents/{id}/download` | streamed bytes, authenticated every request |
+| VaultScreen | delete | DELETE | `/documents/{id}` | |
+| ScanScreen `/scan/{id}` | read a document | GET/POST | `/documents/{id}/scan` | |
+| KycScreen `/kyc/{id}` | verify identity | GET/POST | `/documents/{id}/kyc` | |
+
+Limits come from the API rather than being hard-coded in the app: 10 MB, and
+PDF/JPEG/PNG/HEIC/WebP. File content is sniffed server-side, so a renamed
+executable is rejected. There is no public or signed URL — bytes only ever
+travel through an authenticated request.
+
+## 10. Endpoints Flutter does not call
+
+14 of the 84 Laravel operations are not called by the app today.
+Unused is not unnecessary — several are alternate verbs on endpoints the app does use.
+
+| Method | Endpoint | Note |
+|---|---|---|
+| DELETE | `/ai/memory` | not currently used by the app |
+| DELETE | `/ai/memory/{param}` | not currently used by the app |
+| DELETE | `/notifications/devices/{param}` | not currently used by the app |
+| GET | `/ai/context` | not currently used by the app |
+| GET | `/ai/memory` | not currently used by the app |
+| GET | `/financial-summary` | not currently used by the app |
+| GET | `/goals/{param}` | not currently used by the app |
+| GET | `/notifications` | not currently used by the app |
+| GET | `/notifications/{param}` | not currently used by the app |
+| PATCH | `/applications/{param}` | alternate verb; the app uses PUT |
+| PATCH | `/financial-profile` | alternate verb; the app uses PUT |
+| POST | `/compare` | not currently used by the app |
+| POST | `/notifications/devices` | not currently used by the app |
+| POST | `/provider-events/{param}` | provider ingress — not a customer endpoint |
+
+## 11. Journeys
+
+### Applying for a loan
+
+```text
+HomeScreen /home                     GET /home
+   │ tap Explore
+   ▼
+LoanDiscoveryScreen /loan-discovery  GET /products
+   ▼ enter amount + tenure
+LoanOptionsScreen /loan-options      GET /fynn-match?amount&tenure_months
+   ▼ pick a product
+LoanDetailScreen /loan/:id           GET /fynn-match/{id}
+   ▼ Apply
+ApplicationReviewScreen /apply/:id   POST /applications
+   ▼
+ApplicationDetailScreen /applications/:id
+   ├─ GET  /applications/{id}
+   ├─ GET  /applications/{id}/documents      checklist
+   ├─ POST /applications/{id}/documents      attach from the vault
+   ├─ POST /applications/{id}/submit         complete in FynnEdge
+   └─ POST /applications/{id}/submission     send to a provider → 501 today
+```
+
+`status` on the application drives what the screen offers. The values come from
+`App\Domain\Application\ApplicationStatus`: `started`, `submitted`,
+`under_review`, `action_needed`, `approved`, `declined`, `disbursed`,
+`cancelled`. The resource also returns `can_submit`, `can_cancel` and
+`is_editable`, so the app does not re-derive the rules.
+
+### Support
+
+```text
+SupportScreen /support               GET /support/cases · GET /support/categories
+   ▼ Get help
+SupportRequestScreen /support/new    POST /support/cases   (Idempotency via idempotency_key)
+   ▼
+SupportCaseScreen /support/cases/:id GET /support/cases/{id}
+   ├─ POST /support/cases/{id}/messages
+   └─ POST /support/cases/{id}/close
+```
+
+### Vault and verification
+
+```text
+VaultScreen /vault      GET /documents · GET /documents/limits
+   ├─ upload            POST /documents          multipart
+   ├─ download          GET  /documents/{id}/download
+   ├─ ScanScreen /scan/:id   GET/POST /documents/{id}/scan   → 501 (no provider)
+   └─ KycScreen  /kyc/:id    GET/POST /documents/{id}/kyc    → 501 (no provider)
+```
+
+## 12. State that drives navigation
+
+| API | Field | Values | Decides |
+|---|---|---|---|
+| `GET /auth/me` | token valid? | 200 / 401 | splash → home, or → login |
+| `POST /auth/verify-otp` | `is_new_user` | true / false | onboarding, or straight to home |
+| `GET /profile` | `onboarding_complete` | true / false | whether onboarding is offered |
+| `GET /applications/{id}` | `status` | the 8 `ApplicationStatus` values | which actions the detail screen shows |
+| `GET /applications/{id}` | `can_submit`, `can_cancel`, `is_editable` | boolean | button availability |
+| `GET /consents` | `outstanding_required` | list | whether a consent must be requested first |
+| `GET /credit/status` | `status` | `not_configured` … | whether a credit check can be offered |
+
+## 13. Capabilities with no provider connected
+
+Five capabilities answer **501** with a machine-readable `reason`. The app has
+a dedicated exception for this and explains the feature is unavailable rather
+than showing a failure.
+
+| Capability | Endpoint | `reason` |
+|---|---|---|
+| Credit bureau | `POST /credit/check` | `not_configured` |
+| Lender submission | `POST /applications/{id}/submission` | `lender_provider_unavailable` |
+| Identity verification | `POST /documents/{id}/kyc` | provider unavailable |
+| Document reading | `POST /documents/{id}/scan` | provider unavailable |
+| Push delivery | notification devices | no push driver |
+
+These refusal paths are tested. The **success** paths cannot be verified until
+a provider is connected.
+
+## 14. Testing
+
+| Suite | Where | Result |
+|---|---|---|
+| Flutter contract test | `../fynnedge/test/api_contract_test.dart` | 113/113 |
+| Laravel suite | `php artisan test` | see the phase report |
+| API ownership (IDOR) | `tests/Feature/Api/IdorMatrixTest.php`, `OwnershipCoverageTest.php` | pass |
+| Rate limits | `tests/Feature/Api/RateLimitCoverageTest.php` | pass |
+
+Run the contract test against a local backend:
+
+```bash
+php artisan serve --port=8123
+cd ../fynnedge && flutter test test/api_contract_test.dart \
+  --dart-define=FYNN_API_BASE=http://127.0.0.1:8123
+```
+
+## 15. Mismatches
+
+Flutter makes 70 distinct endpoint calls. Every one resolves to a Laravel
+route — **0 unmatched**. No endpoint is called that the API does not serve, and
+no call uses a method the route does not accept.
+
+## 16. Reference
+
+- OpenAPI: `/docs/api` (UI) and `/docs/api.json` — 82 documented operations
+- API guide: `README.md`, section *The API*
+- Route list: `php artisan route:list --path=api/v1`

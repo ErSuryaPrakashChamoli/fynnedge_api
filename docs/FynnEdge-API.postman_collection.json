@@ -1,0 +1,2774 @@
+{
+  "info": {
+    "name": "FynnEdge Advisory API (v1)",
+    "_postman_id": "fynnedge-api-v1-collection",
+    "description": "The API the FynnEdge Flutter application talks to. Every endpoint here\nanswers for one authenticated customer, from their own stored records.\n\n**Authentication.** There are no passwords. A customer is a mobile\nnumber that proves itself with a one-time code: `POST /auth/send-otp`\nthen `POST /auth/verify-otp` returns a Sanctum bearer token, which\nevery other endpoint requires as `Authorization: Bearer <token>`.\nTokens last 30 days and are revoked per device.\n\n**Ownership.** A customer-scoped record that belongs to somebody else\nanswers **404, not 403** \u2014 deliberately, so that a caller cannot tell\n\"not yours\" from \"does not exist\".\n\n**Not connected.** Credit checks, lender submission, identity\nverification, document reading and push delivery have no provider\nconfigured in this deployment. Those endpoints answer **501** with a\nmachine-readable `reason`, rather than simulating a result.\n\nExamples use reserved test numbers and invented data throughout.\n\n---\n\n**Generated from the OpenAPI document, which is generated from the routes.** Every request here corresponds to one of the 82 live API routes.\n\n### Getting a token\n\n1. Set `baseUrl` and `mobile` in the collection variables.\n2. Run **Authentication \u2192 send-otp**. Its script stores the `reference` that verify-otp requires, and on a local build it also fills in `otp` from the development hint.\n3. Run **Authentication \u2192 verify-otp** \u2014 its script stores the returned token as `token`.\n\nIn production there is no development hint: the code only reaches the handset, so set `otp` yourself between the two steps.\n\nEvery other request inherits `Authorization: Bearer {{token}}` from the collection.\n\n### Requests that need a product\n\n**Products & Matching \u2192 products** stores the first catalogue entry as `product_id`. Run it once and *compare*, *fynn-twin/simulate* and *applications* will work as they are.\n\n### Path variables\n\nRequests with `:id`-style segments expose them under the request's **Path Variables** tab. They are left empty on purpose \u2014 fill them with ids from a list endpoint. Asking for a resource that belongs to someone else returns **404**, not 403: that is deliberate, and not a bug.\n\nNo credentials, tokens or OTP values are stored in this file.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000/api/v1",
+      "type": "string",
+      "description": "Root of the API, including /api/v1."
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string",
+      "description": "Filled in by verify-otp. Do not commit a real one."
+    },
+    {
+      "key": "mobile",
+      "value": "",
+      "type": "string",
+      "description": "The 10-digit number to sign in with."
+    },
+    {
+      "key": "otp",
+      "value": "",
+      "type": "string",
+      "description": "The code. Filled in automatically on a local build. Never commit a real one."
+    },
+    {
+      "key": "reference",
+      "value": "",
+      "type": "string",
+      "description": "Filled in by send-otp. Identifies the challenge."
+    },
+    {
+      "key": "product_id",
+      "value": "",
+      "type": "string",
+      "description": "Filled in by Products & Matching \u2192 products."
+    },
+    {
+      "key": "product_id_2",
+      "value": "",
+      "type": "string",
+      "description": "The second catalogue entry, for compare."
+    },
+    {
+      "key": "device_id",
+      "value": "postman-device",
+      "type": "string"
+    },
+    {
+      "key": "device_token",
+      "value": "postman-token",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Lets the app confirm a persisted token is still good on launch",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Lets the app confirm a persisted token is still good on launch"
+          }
+        },
+        {
+          "name": "POST /auth/logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "logout"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /auth/send-otp",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/send-otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "send-otp"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mobile\": \"{{mobile}}\",\n  \"device_name\": \"Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// verify-otp requires the reference this call returns.",
+                  "const body = pm.response.json();",
+                  "const reference = body?.data?.reference;",
+                  "if (reference) {",
+                  "    pm.collectionVariables.set('reference', reference);",
+                  "    console.log('Reference stored. Now set {{otp}} and run verify-otp.');",
+                  "}",
+                  "",
+                  "// On a local build the code comes back in dev_hint, so it",
+                  "// can be filled in for you. It is absent in production,",
+                  "// where the code only ever reaches the handset.",
+                  "const hint = body?.data?.dev_hint;",
+                  "const code = hint && String(hint).match(/\\d{4,8}/);",
+                  "if (code) {",
+                  "    pm.collectionVariables.set('otp', code[0]);",
+                  "    console.log('Development hint present; {{otp}} filled in.');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /auth/verify-otp",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/verify-otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "verify-otp"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mobile\": \"{{mobile}}\",\n  \"reference\": \"{{reference}}\",\n  \"code\": \"{{otp}}\",\n  \"device_name\": \"Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Stores the returned token as {{token}} for every other request.",
+                  "const body = pm.response.json();",
+                  "const token = body?.data?.token ?? body?.token;",
+                  "if (token) {",
+                  "    pm.collectionVariables.set('token', token);",
+                  "    console.log('Token stored.');",
+                  "} else {",
+                  "    console.log('No token in the response.');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Customer",
+      "item": [
+        {
+          "name": "Everything this customer has ever decided, newest first",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/consents/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "consents",
+                "history"
+              ]
+            },
+            "description": "Everything this customer has ever decided, newest first"
+          }
+        },
+        {
+          "name": "GET /financial-profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/financial-profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "financial-profile"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /home",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/home",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "home"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "profile"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ownership comes from the token, never from the payload: only\n$request->validated() reaches the model, and the FormRequest has no\nuser_id rule, so a client-supplied id is discarded",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/financial-profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "financial-profile"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monthly_income\": 0.0,\n  \"monthly_expenses\": 0.0,\n  \"existing_emi\": 0.0,\n  \"savings\": 0.0,\n  \"other_obligations\": 0.0,\n  \"employment_type\": \"salaried\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ownership comes from the token, never from the payload: only\n$request->validated() reaches the model, and the FormRequest has no\nuser_id rule, so a client-supplied id is discarded\n\nThis route accepts **PUT or PATCH** \u2014 both reach the same controller action and behave identically. The collection sends PUT, which is what the Flutter app sends; switch the method if you want to exercise PATCH."
+          }
+        },
+        {
+          "name": "POST /consents",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/consents",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "consents"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"service_terms\",\n  \"source\": \"privacy_screen\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /consents/:type/withdraw",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/consents/:type/withdraw",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "consents",
+                ":type",
+                "withdraw"
+              ],
+              "variable": [
+                {
+                  "key": "type",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"TODO_source\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PUT /profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "profile"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"TODO_full_name\",\n  \"age\": 18,\n  \"city\": \"TODO_city\",\n  \"email\": \"someone@example.com\",\n  \"intent\": \"need_loan\",\n  \"primary_goal\": \"business\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "The catalogue, with this customer's position on each entry",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/consents",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "consents"
+              ]
+            },
+            "description": "The catalogue, with this customer's position on each entry"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Financial",
+      "item": [
+        {
+          "name": "DELETE /goals/:goal",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/goals/:goal",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "goals",
+                ":goal"
+              ],
+              "variable": [
+                {
+                  "key": "goal",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /decisions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/decisions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "decisions"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "GET /decisions\n\nThe history, newest first. Empty for a customer who has explored\nnothing \u2014 and empty is the honest answer, not a prompt to go and do\nsomething."
+          }
+        },
+        {
+          "name": "GET /decisions/{decision}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/decisions/:decision",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "decisions",
+                ":decision"
+              ],
+              "variable": [
+                {
+                  "key": "decision",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "GET /decisions/{decision}\n\nOne entry with its explanation. The explanation is built from what\nwas recorded at the time, so a decision from six months ago explains\nitself with the rate it was actually shown."
+          }
+        },
+        {
+          "name": "GET /financial-summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/financial-summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "financial-summary"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /fynn-score",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/fynn-score",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "fynn-score"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /goals",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/goals",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "goals"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /goals/:goal",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/goals/:goal",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "goals",
+                ":goal"
+              ],
+              "variable": [
+                {
+                  "key": "goal",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /intelligence",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/intelligence",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "intelligence"
+              ]
+            },
+            "description": "GET /intelligence\n\nThe state read once and handed to both rule sets, so the insight and\nthe next action cannot disagree about the customer."
+          }
+        },
+        {
+          "name": "GET /intelligence/timeline",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/intelligence/timeline",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "intelligence",
+                "timeline"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "GET /intelligence/timeline\n\nThe customer's financial story, newest first. Not the audit log:\nnothing here is a webhook, a retry, a storage operation or a consent\nrecord."
+          }
+        },
+        {
+          "name": "POST /fynn-twin/simulate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/fynn-twin/simulate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "fynn-twin",
+                "simulate"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"loan\",\n  \"product_id\": \"{{product_id}}\",\n  \"amount\": 500000.0,\n  \"tenure_months\": 36,\n  \"monthly_change\": 1.0,\n  \"monthly_amount\": 1.0,\n  \"months\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /goals",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/goals",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "goals"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"TODO_title\",\n  \"category\": \"business\",\n  \"target_amount\": 1.0,\n  \"target_date\": \"2027-09-10\",\n  \"saved_amount\": 0.0,\n  \"note\": \"TODO_note\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PUT /goals/:goal",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/goals/:goal",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "goals",
+                ":goal"
+              ],
+              "variable": [
+                {
+                  "key": "goal",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"TODO_title\",\n  \"category\": \"business\",\n  \"target_amount\": 1.0,\n  \"target_date\": \"2027-09-10\",\n  \"saved_amount\": 0.0,\n  \"note\": \"TODO_note\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "What FynnTwin can simulate, and whether this customer can use it",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/fynn-twin",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "fynn-twin"
+              ]
+            },
+            "description": "What FynnTwin can simulate, and whether this customer can use it"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Products & Matching",
+      "item": [
+        {
+          "name": "GET /fynn-match",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/fynn-match?amount=500000&tenure_months=36",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "fynn-match"
+              ],
+              "query": [
+                {
+                  "key": "amount",
+                  "value": "500000",
+                  "description": " (required)",
+                  "disabled": false
+                },
+                {
+                  "key": "tenure_months",
+                  "value": "36",
+                  "description": " (required)",
+                  "disabled": false
+                },
+                {
+                  "key": "purpose",
+                  "value": "",
+                  "description": "Purposes reuse the goal vocabulary the app already sends.",
+                  "disabled": true
+                },
+                {
+                  "key": "preferred_emi",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /fynn-match/{product} \u2014 one product at a chosen amount and tenure",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/fynn-match/:product?amount=500000&tenure_months=36",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "fynn-match",
+                ":product"
+              ],
+              "query": [
+                {
+                  "key": "amount",
+                  "value": "500000",
+                  "description": " (required)",
+                  "disabled": false
+                },
+                {
+                  "key": "tenure_months",
+                  "value": "36",
+                  "description": " (required)",
+                  "disabled": false
+                },
+                {
+                  "key": "purpose",
+                  "value": "",
+                  "description": "Purposes reuse the goal vocabulary the app already sends.",
+                  "disabled": true
+                },
+                {
+                  "key": "preferred_emi",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "product",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "GET /fynn-match/{product} \u2014 one product at a chosen amount and tenure\n\nThis is the simulation behind Loan Detail's sliders. It computes and\nreturns; it writes nothing. Moving a slider must never change what\nFynnEdge holds about the customer."
+          }
+        },
+        {
+          "name": "GET /products",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "amount",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Several requests need a product that exists. Keep the",
+                  "// first one from the catalogue so they can be run as-is.",
+                  "const body = pm.response.json();",
+                  "const rows = Array.isArray(body?.data) ? body.data",
+                  "           : (body?.data?.items ?? []);",
+                  "if (rows.length) {",
+                  "    pm.collectionVariables.set('product_id', rows[0].id);",
+                  "    // compare needs two, and comparing a product with",
+                  "    // itself answers nothing.",
+                  "    pm.collectionVariables.set('product_id_2',",
+                  "        (rows[1] ?? rows[0]).id);",
+                  "    console.log('product_id stored: ' + rows[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /products/:id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/products/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "products",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "The app compares locally so the maths stays consistent offline; this\nendpoint exists for server-side consumers and audit trails",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/compare",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "compare"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_ids\": [\n    \"{{product_id}}\",\n    \"{{product_id_2}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "The app compares locally so the maths stays consistent offline; this\nendpoint exists for server-side consumers and audit trails"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Applications",
+      "item": [
+        {
+          "name": "DELETE /applications/{application}/documents/{requirement}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/applications/:application/documents/:requirement",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "applications",
+                ":application",
+                "documents",
+                ":requirement"
+              ],
+              "variable": [
+                {
+                  "key": "application",
+                  "value": "",
+                  "description": ""
+                },
+                {
+                  "key": "requirement",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "DELETE /applications/{application}/documents/{requirement}\n\nRemoves the choice. The document itself stays in the vault, untouched."
+          }
+        },
+        {
+          "name": "GET /applications",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/applications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "applications"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /applications/:application",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/applications/:application",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "applications",
+                ":application"
+              ],
+              "variable": [
+                {
+                  "key": "application",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /applications/{application}/documents",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/applications/:application/documents",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "applications",
+                ":application",
+                "documents"
+              ],
+              "variable": [
+                {
+                  "key": "application",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "GET /applications/{application}/documents\n\nThe checklist, recomputed from what is true now \u2014 so a document\ndeleted from the vault shows as missing the moment anybody looks."
+          }
+        },
+        {
+          "name": "GET /applications/{application}/submission",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/applications/:application/submission",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "applications",
+                ":application",
+                "submission"
+              ],
+              "variable": [
+                {
+                  "key": "application",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "GET /applications/{application}/submission\n\nWhere the external submission stands. Never calls a provider, so\nopening the screen cannot send anything."
+          }
+        },
+        {
+          "name": "POST /applications",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/applications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "applications"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": \"{{product_id}}\",\n  \"amount\": 500000.0,\n  \"tenure_months\": 36\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /applications/:application/cancel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/applications/:application/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "applications",
+                ":application",
+                "cancel"
+              ],
+              "variable": [
+                {
+                  "key": "application",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /applications/:application/submit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/applications/:application/submit",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "applications",
+                ":application",
+                "submit"
+              ],
+              "variable": [
+                {
+                  "key": "application",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"acknowledged\": \"yes\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /applications/{application}/documents",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/applications/:application/documents",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "applications",
+                ":application",
+                "documents"
+              ],
+              "variable": [
+                {
+                  "key": "application",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requirement_code\": \"TODO_requirement_code\",\n  \"document_id\": \"TODO_document_id\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "POST /applications/{application}/documents\n\nChooses one of the customer's vault documents for a requirement.\nChoosing is not confirming: the slot becomes \"needs your\n     * confirmation\", and they still have to say it is the right one."
+          }
+        },
+        {
+          "name": "POST /applications/{application}/documents/{requirement}/review",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/applications/:application/documents/:requirement/review",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "applications",
+                ":application",
+                "documents",
+                ":requirement",
+                "review"
+              ],
+              "variable": [
+                {
+                  "key": "application",
+                  "value": "",
+                  "description": ""
+                },
+                {
+                  "key": "requirement",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"accepted\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "POST /applications/{application}/documents/{requirement}/review\n\nThe customer's decision: this is the document to use, or it is not.\n\nAccepting is the customer confirming their own choice. It is not\nverification by FynnEdge, not approval, and nobody outside FynnEdge\nhas seen the document."
+          }
+        },
+        {
+          "name": "POST /applications/{application}/submission",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/applications/:application/submission",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "applications",
+                ":application",
+                "submission"
+              ],
+              "variable": [
+                {
+                  "key": "application",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "POST /applications/{application}/submission\n\nSends it, because the customer asked with the destination in front of\nthem. There are no body parameters at all: the provider, the outcome\nand the simulated flag are server- and provider-owned, and an\napplication id in the body would reach nothing."
+          }
+        },
+        {
+          "name": "PUT /applications/:application",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/applications/:application",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "applications",
+                ":application"
+              ],
+              "variable": [
+                {
+                  "key": "application",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 500000.0,\n  \"tenure_months\": 36\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "This route accepts **PUT or PATCH** \u2014 both reach the same controller action and behave identically. The collection sends PUT, which is what the Flutter app sends; switch the method if you want to exercise PATCH."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Documents & Verification",
+      "item": [
+        {
+          "name": "Asks the bureau, if the customer has permitted it",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/credit/check",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "credit",
+                "check"
+              ]
+            },
+            "description": "Asks the bureau, if the customer has permitted it\n\nReturns a report already held when one is recent enough, rather than\npaying for and recording another enquiry."
+          }
+        },
+        {
+          "name": "DELETE /documents/:document",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/documents/:document",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                ":document"
+              ],
+              "variable": [
+                {
+                  "key": "document",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /documents",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/documents",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /documents/:document",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/documents/:document",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                ":document"
+              ],
+              "variable": [
+                {
+                  "key": "document",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /documents/{document}/kyc",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/documents/:document/kyc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                ":document",
+                "kyc"
+              ],
+              "variable": [
+                {
+                  "key": "document",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "GET /documents/{document}/kyc\n\nWhat FynnEdge already knows. Never asks a provider, so opening the\nscreen cannot cost the customer a charge."
+          }
+        },
+        {
+          "name": "GET /documents/{document}/scan",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/documents/:document/scan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                ":document",
+                "scan"
+              ],
+              "variable": [
+                {
+                  "key": "document",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "GET /documents/{document}/scan\n\nWhat FynnEdge already knows. Never asks a provider, so opening the\nscreen cannot cost the customer a charge."
+          }
+        },
+        {
+          "name": "POST /documents",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/documents",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "type",
+                  "type": "text",
+                  "value": "identity"
+                },
+                {
+                  "key": "name",
+                  "type": "text",
+                  "value": "TODO_name"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /documents/{document}/kyc",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/documents/:document/kyc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                ":document",
+                "kyc"
+              ],
+              "variable": [
+                {
+                  "key": "document",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"force\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "POST /documents/{document}/kyc\n\nAsks for the document to be checked, because the customer asked."
+          }
+        },
+        {
+          "name": "POST /documents/{document}/kyc/resolve",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/documents/:document/kyc/resolve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                ":document",
+                "kyc",
+                "resolve"
+              ],
+              "variable": [
+                {
+                  "key": "document",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"field\": \"TODO_field\",\n  \"decision\": \"keep_profile\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "POST /documents/{document}/kyc/resolve\n\nWhat the customer decides about a difference: their profile is right,\nor the document is and they want their profile corrected.\n\nDeliberately the only path by which a verification can change a\nprofile, and it runs only when a customer chooses one of these."
+          }
+        },
+        {
+          "name": "POST /documents/{document}/scan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/documents/:document/scan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                ":document",
+                "scan"
+              ],
+              "variable": [
+                {
+                  "key": "document",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"force\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "POST /documents/{document}/scan\n\nAsks for the document to be read, because the customer asked."
+          }
+        },
+        {
+          "name": "POST /documents/{document}/scan/review",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/documents/:document/scan/review",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                ":document",
+                "scan",
+                "review"
+              ],
+              "variable": [
+                {
+                  "key": "document",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"field\": \"TODO_field\",\n  \"decision\": \"confirmed\",\n  \"value\": \"TODO_value\",\n  \"apply_to_profile\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "POST /documents/{document}/scan/review\n\nThe customer's answer about one field: it is right, it is wrong and\nhere is the right figure, or it is wrong and they are not supplying\none. Optionally, and only when they ask, the confirmed figure is\ncarried into their financial profile."
+          }
+        },
+        {
+          "name": "Streams the file to its owner",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/documents/:document/download",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                ":document",
+                "download"
+              ],
+              "query": [
+                {
+                  "key": "inline",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "document",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Streams the file to its owner\n\nNot a redirect to storage and not a signed public URL: the bytes go\nthrough an authenticated request every time, and no link to them\noutlives it."
+          }
+        },
+        {
+          "name": "What FynnVault will accept, so the app can say so before a failure",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/documents/limits",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                "limits"
+              ]
+            },
+            "description": "What FynnVault will accept, so the app can say so before a failure"
+          }
+        },
+        {
+          "name": "Where this customer stands, without asking a bureau anything",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/credit/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "credit",
+                "status"
+              ]
+            },
+            "description": "Where this customer stands, without asking a bureau anything"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "item": [
+        {
+          "name": "DELETE /notifications/devices/{device}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/devices/:device",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "devices",
+                ":device"
+              ],
+              "variable": [
+                {
+                  "key": "device",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "DELETE /notifications/devices/{device}\n\nDeactivated through the customer's own relation, so another\ncustomer's device id is not found rather than refused, and cannot be\nswitched off by someone who guessed it."
+          }
+        },
+        {
+          "name": "GET /notifications",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/notifications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "before",
+                  "value": "",
+                  "description": "The id of the oldest notification already held. Ids descend,\nso \"older than this\" is a single indexed comparison and does\nnot drift when something new arrives mid-scroll the way an\noffset would.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "GET /notifications\n\nNewest first, a page at a time. The unread count travels in the meta\nso the badge does not cost a second request, and it counts rather\nthan loads: it is never derived from the page."
+          }
+        },
+        {
+          "name": "GET /notifications/:notification",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/:notification",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                ":notification"
+              ],
+              "variable": [
+                {
+                  "key": "notification",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /notifications/preferences",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/preferences",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "preferences"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /notifications/unread-count",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/unread-count",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "unread-count"
+              ]
+            },
+            "description": "GET /notifications/unread-count\n\nOne number, one indexed count. Home asks for this and nothing else,\nso a badge never costs a page of notifications."
+          }
+        },
+        {
+          "name": "POST /notifications/devices",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/devices",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "devices"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"TODO_token\",\n  \"platform\": \"ios\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "POST /notifications/devices\n\nRegistering a token that is already registered to somebody else\nmoves it. That is correct rather than permissive: a handset belongs\nto whoever is signed in on it, and leaving the previous registration\nactive would send one customer's notifications to a phone another\ncustomer is holding."
+          }
+        },
+        {
+          "name": "POST /notifications/read-all",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/read-all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "read-all"
+              ]
+            },
+            "description": "POST /notifications/read-all\n\nSafe to repeat, and scoped by the relation \u2014 one customer's read-all\ncannot reach another's rows, because the update is issued through\ntheir own relation rather than against the table."
+          }
+        },
+        {
+          "name": "POST /notifications/{notification}/read",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/:notification/read",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                ":notification",
+                "read"
+              ],
+              "variable": [
+                {
+                  "key": "notification",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "POST /notifications/{notification}/read\n\nIdempotent: reading something twice leaves the first read_at alone,\nso the time shown is when they actually first saw it."
+          }
+        },
+        {
+          "name": "PUT /notifications/preferences",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/preferences",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "preferences"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"push_enabled\": true,\n  \"muted_categories\": [\n    \"financial_health\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Support",
+      "item": [
+        {
+          "name": "GET /support/cases \u2014 newest first",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/support/cases",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "support",
+                "cases"
+              ]
+            },
+            "description": "GET /support/cases \u2014 newest first"
+          }
+        },
+        {
+          "name": "GET /support/cases/:case",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/support/cases/:case",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "support",
+                "cases",
+                ":case"
+              ],
+              "variable": [
+                {
+                  "key": "case",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /support/categories",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/support/categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "support",
+                "categories"
+              ]
+            },
+            "description": "GET /support/categories\n\nWhat a customer can ask about, in the order they are offered. Labels\ncome from the enum so the app never spells one differently."
+          }
+        },
+        {
+          "name": "POST /support/cases",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/support/cases",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "support",
+                "cases"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"category\": \"application\",\n  \"subject\": \"TODO_subject\",\n  \"description\": \"TODO_description\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "POST /support/cases\n\nIdempotent on the Idempotency-Key header, the same as an application:\na customer tapping \"Get help\" twice has asked once."
+          }
+        },
+        {
+          "name": "POST /support/cases/{case}/close",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/support/cases/:case/close",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "support",
+                "cases",
+                ":case",
+                "close"
+              ],
+              "variable": [
+                {
+                  "key": "case",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "POST /support/cases/{case}/close\n\nThe customer no longer needs help. Recorded with a reason, so a\nrequest they closed is distinguishable from one FynnEdge resolved."
+          }
+        },
+        {
+          "name": "POST /support/cases/{case}/messages",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/support/cases/:case/messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "support",
+                "cases",
+                ":case",
+                "messages"
+              ],
+              "variable": [
+                {
+                  "key": "case",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"TODO_body\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "POST /support/cases/{case}/messages\n\nThe customer adds something. Authored as the customer by the server,\nalways \u2014 there is no field for who wrote it."
+          }
+        }
+      ]
+    },
+    {
+      "name": "FynnAI",
+      "item": [
+        {
+          "name": "Answers one message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/conversations/:conversation/messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "conversations",
+                ":conversation",
+                "messages"
+              ],
+              "variable": [
+                {
+                  "key": "conversation",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"TODO_text\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Answers one message\n\nWith no assistant configured this answers 501 rather than inventing a\nreply or quietly handing the question to something the customer was\nnot told about."
+          }
+        },
+        {
+          "name": "DELETE /ai/conversations/:conversation",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/conversations/:conversation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "conversations",
+                ":conversation"
+              ],
+              "variable": [
+                {
+                  "key": "conversation",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "DELETE /ai/memory",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/memory",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "memory"
+              ]
+            }
+          }
+        },
+        {
+          "name": "DELETE /ai/memory/:memory",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/memory/:memory",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "memory",
+                ":memory"
+              ],
+              "variable": [
+                {
+                  "key": "memory",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /ai/conversations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/conversations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "conversations"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /ai/conversations/:conversation",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/conversations/:conversation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "conversations",
+                ":conversation"
+              ],
+              "variable": [
+                {
+                  "key": "conversation",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /ai/memory",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/memory",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "memory"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /ai/conversations",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/conversations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "conversations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"TODO_title\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "What FynnAI can see about this customer",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/context",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "context"
+              ]
+            },
+            "description": "What FynnAI can see about this customer\n\nExposed so the app can show the customer exactly that, and so a test\ncan assert its contents rather than guessing at a prompt."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Provider Ingress",
+      "item": [
+        {
+          "name": "POST /provider-events/{provider}",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/provider-events/:provider",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "provider-events",
+                ":provider"
+              ],
+              "variable": [
+                {
+                  "key": "provider",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "POST /provider-events/{provider}"
+          }
+        }
+      ]
+    }
+  ]
+}
