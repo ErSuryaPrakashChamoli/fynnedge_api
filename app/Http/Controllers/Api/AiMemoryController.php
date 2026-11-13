@@ -19,6 +19,7 @@ class AiMemoryController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        //phase 1
         $user = $request->user();
         $allowed = $this->ai->mayRemember($user);
 
