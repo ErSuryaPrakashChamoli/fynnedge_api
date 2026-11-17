@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Domain\Ai\AiEngineUnavailable;
 use App\Domain\Ai\FynnAiContextBuilder;
 use App\Domain\Ai\FynnAiProvider;
+use App\Domain\Ai\RemoteFynnAiProvider;
 use App\Domain\Ai\UnavailableFynnAiProvider;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\AiChatRequest;
 use App\Http\Requests\SendAiMessageRequest;
 use App\Models\Conversation;
 use App\Models\ConversationMessage;
@@ -128,6 +131,63 @@ class AiController extends Controller
     }
 
     /**
+     * Answers one message in a single call.
+     *
+     * The same assistant and the same transcript as the conversation
+     * endpoints. Without a `conversation_id` a conversation is started; with
+     * one, it must be the customer's own — anyone else's is not found.
+     */
+    public function chat(AiChatRequest $request): JsonResponse
+    {
+        $conversationId = $request->validated('conversation_id');
+        $conversation = $conversationId === null
+            ? null
+            : $this->owned($request, (string) $conversationId);
+        $text = $request->validated('message');
+
+        try {
+            $answer = $this->ai->chat($request->user(), $text, $conversation);
+        } catch (RuntimeException $e) {
+            return $this->failure($e);
+        }
+
+        return response()->json([
+            'data' => array_merge(
+                [
+                    'conversation_id' => (string) $answer->conversation_id,
+                    'message_id' => (string) $answer->id,
+                    'user_message' => $text,
+                    'ai_response' => $answer->content,
+                    'at' => $answer->created_at?->toIso8601String(),
+                ],
+                $this->ai->presentation($answer),
+                ['provider' => $this->providerDescription()],
+            ),
+        ]);
+    }
+
+    /**
+     * Whether FynnAI can answer right now.
+     *
+     * A yes or no, with the same provider description every answer carries.
+     * Where the engine is, which model it runs and how it is doing inside
+     * stay on the server.
+     */
+    public function status(): JsonResponse
+    {
+        $online = $this->provider->isAvailable()
+            && (! $this->provider instanceof RemoteFynnAiProvider || $this->provider->isReachable());
+
+        return response()->json([
+            'data' => [
+                'online' => $online,
+                'provider' => $this->providerDescription(),
+                'checked_at' => now()->toIso8601String(),
+            ],
+        ]);
+    }
+
+    /**
      * How the answer was produced.
      *
      * `is_language_model` is false for the assistant FynnEdge ships. Saying
@@ -188,6 +248,16 @@ class AiController extends Controller
 
     private function failure(RuntimeException $e): JsonResponse
     {
+        // The engine's own diagnosis stays in the log. The app is told what
+        // happened, with a reason it can branch on, at the top level where
+        // its API client reads one.
+        if ($e instanceof AiEngineUnavailable) {
+            return response()->json([
+                'message' => $e->customerMessage(),
+                'reason' => $e->reason,
+            ], $e->status());
+        }
+
         return match ($e->getMessage()) {
             'ai_unavailable' => response()->json([
                 'message' => UnavailableFynnAiProvider::MESSAGE,

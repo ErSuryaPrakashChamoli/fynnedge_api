@@ -37,11 +37,32 @@ return [
 
     /*
      * FynnAI. 'deterministic' is the rules assistant FynnEdge ships; 'none'
-     * reports that FynnAI is not connected. A language-model provider gets
-     * its own value here when one is chosen.
+     * reports that FynnAI is not connected; 'fastapi' answers with the
+     * FynnAI Engine configured below.
      */
     'fynn_ai' => [
         'provider' => env('FYNN_AI_PROVIDER', 'deterministic'),
+    ],
+
+    /*
+     * The FynnAI Engine: a FastAPI service in front of a self-hosted Ollama
+     * model. Reached from this server only — the app is never given its
+     * address. With no base URL, FynnAI reports itself not connected.
+     *
+     * `timeout` is the whole wait for a reply, in seconds, and stays below
+     * the app's own 20-second request limit so a slow model reaches the
+     * customer as a clean 504 rather than the app giving up first.
+     *
+     * `history_messages` is how many earlier messages of the conversation
+     * travel with a new one, since the engine keeps no conversation of its
+     * own. 0 sends only the new message.
+     */
+    'fastapi' => [
+        'base_url' => env('FASTAPI_BASE_URL'),
+        'timeout' => (int) env('FASTAPI_TIMEOUT', 15),
+        'connect_timeout' => (int) env('FASTAPI_CONNECT_TIMEOUT', 3),
+        'model' => env('FASTAPI_MODEL'),
+        'history_messages' => (int) env('FASTAPI_HISTORY_MESSAGES', 10),
     ],
 
 ];

@@ -37,5 +37,10 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- The suite never reaches a real model, whatever the local .env
+             points FynnAI at. Tests that exercise the engine configure it
+             themselves against a faked HTTP client. -->
+        <env name="FYNN_AI_PROVIDER" value="deterministic"/>
+        <env name="FASTAPI_BASE_URL" value=""/>
     </php>
 </phpunit>

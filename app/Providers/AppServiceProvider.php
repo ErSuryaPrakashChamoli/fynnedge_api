@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Domain\Ai\DeterministicFynnAiProvider;
+use App\Domain\Ai\FastApiFynnAiProvider;
 use App\Domain\Ai\FynnAiProvider;
 use App\Domain\Ai\UnavailableFynnAiProvider;
 use App\Domain\Application\ApplicationSubmissionGateway;
@@ -100,15 +101,19 @@ class AppServiceProvider extends ServiceProvider
                 : $app->make(MockProductRepository::class),
         );
 
-        // FynnAI. The deterministic assistant is what FynnEdge has: it reads
-        // the customer's real context and explains real figures, and it says
-        // in every response that it is not a language model. Setting
-        // FYNN_AI_PROVIDER=none binds the unavailable one instead.
+        // FynnAI. The deterministic assistant is the default: it reads the
+        // customer's real context and explains real figures, and it says in
+        // every response that it is not a language model.
+        // FYNN_AI_PROVIDER=fastapi binds the FynnAI Engine (FastAPI in front
+        // of Ollama), which is a language model and says so.
+        // FYNN_AI_PROVIDER=none binds the unavailable one.
         $this->app->singleton(
             FynnAiProvider::class,
-            fn ($app) => config('services.fynn_ai.provider') === 'none'
-                ? $app->make(UnavailableFynnAiProvider::class)
-                : $app->make(DeterministicFynnAiProvider::class),
+            fn ($app) => match (config('services.fynn_ai.provider')) {
+                'none' => $app->make(UnavailableFynnAiProvider::class),
+                'fastapi' => $app->make(FastApiFynnAiProvider::class),
+                default => $app->make(DeterministicFynnAiProvider::class),
+            },
         );
 
         /*

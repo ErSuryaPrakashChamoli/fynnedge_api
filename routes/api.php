@@ -296,6 +296,11 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     // FynnAI. Conversations and memory belong to the authenticated
     // customer; the assistant only ever sees context built from that user.
     Route::get('/ai/context', [AiController::class, 'context']);
+
+    // Whether FynnAI can answer right now: online or not, and nothing about
+    // where or what the engine is.
+    Route::get('/ai/status', [AiController::class, 'status']);
+
     Route::get('/ai/conversations', [AiController::class, 'index']);
     Route::get('/ai/conversations/{conversation}', [AiController::class, 'show']);
     Route::delete('/ai/conversations/{conversation}', [AiController::class, 'destroy']);
@@ -309,5 +314,9 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::middleware('throttle:ai-write')->group(function () {
         Route::post('/ai/conversations', [AiController::class, 'store']);
         Route::post('/ai/conversations/{conversation}/messages', [AiController::class, 'send']);
+
+        // One call for a client that just wants an answer: starts a
+        // conversation, or continues one of the customer's own.
+        Route::post('/ai/chat', [AiController::class, 'chat']);
     });
 });

@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 /**
  * The conversation, its memory, and the boundary to whatever answers.
@@ -49,13 +50,22 @@ class FynnAiService
 
         $context = $this->contexts->build($user);
 
-        return DB::transaction(function () use ($conversation, $message, $context) {
+        /*
+         * Answered before anything is written, and outside the transaction.
+         *
+         * A language model can take seconds to reply, and a transaction must
+         * not be held open across a network call. It also means a failed
+         * answer records nothing — the customer's message is not left in
+         * the transcript with no reply after it — and the provider reads the
+         * conversation as it stood when the customer wrote this.
+         */
+        $reply = $this->provider->generate($context, $conversation, $message);
+
+        return DB::transaction(function () use ($conversation, $message, $reply) {
             $conversation->messages()->create([
                 'role' => ConversationMessage::ROLE_USER,
                 'content' => $message,
             ]);
-
-            $reply = $this->provider->generate($context, $conversation, $message);
 
             $stored = $conversation->messages()->create([
                 'role' => ConversationMessage::ROLE_ASSISTANT,
@@ -76,6 +86,31 @@ class FynnAiService
 
             return $stored;
         });
+    }
+
+    /**
+     * Answers one message, in a conversation the customer names or a new one.
+     *
+     * The single-call path, for a client that wants an answer without first
+     * creating a conversation. A new conversation whose first message could
+     * not be answered is removed again, so a failure does not leave an empty
+     * "New conversation" in the customer's list.
+     */
+    public function chat(User $user, string $message, ?Conversation $conversation = null): ConversationMessage
+    {
+        if ($conversation !== null) {
+            return $this->reply($user, $conversation, $message);
+        }
+
+        $conversation = $this->startConversation($user);
+
+        try {
+            return $this->reply($user, $conversation, $message);
+        } catch (Throwable $e) {
+            $conversation->delete();
+
+            throw $e;
+        }
     }
 
     /** @return array{suggestions: list<string>, actions: list<array<string, string>>} */
