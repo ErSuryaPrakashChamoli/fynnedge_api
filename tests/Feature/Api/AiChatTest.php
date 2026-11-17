@@ -8,6 +8,7 @@ use Closure;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\TestWith;
@@ -29,6 +30,8 @@ class AiChatTest extends TestCase
 
     private const HEALTH = self::ENGINE.'/health';
 
+    private const KEY = 'test-engine-key';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -36,6 +39,7 @@ class AiChatTest extends TestCase
         config([
             'services.fynn_ai.provider' => 'fastapi',
             'services.fastapi.base_url' => self::ENGINE,
+            'services.fastapi.api_key' => self::KEY,
             'services.fastapi.history_messages' => 10,
         ]);
 
@@ -50,6 +54,26 @@ class AiChatTest extends TestCase
         Sanctum::actingAs($user);
 
         return $user;
+    }
+
+    /** A signed-in customer with a name, a city and figures worth protecting. */
+    private function customerWithFigures(): User
+    {
+        $user = $this->customer();
+        $user->customerProfile->update(['full_name' => 'Rahul Sharma', 'city' => 'Pune']);
+        $user->financialProfile->update([
+            'monthly_income' => 100000,
+            'monthly_expenses' => 40000,
+            'existing_emi' => 20000,
+            'savings' => 180000,
+        ]);
+
+        return $user;
+    }
+
+    private function grantMemory(): void
+    {
+        $this->postJson('/api/v1/consents', ['type' => 'ai_memory'])->assertOk();
     }
 
     private function engineReplies(string $reply): void
@@ -72,6 +96,12 @@ class AiChatTest extends TestCase
 
         $conversation = $user->conversations()->sole();
         $response->assertOk()
+            // The shape the Flutter app reads. Adding a field is safe;
+            // losing one of these breaks the app.
+            ->assertJsonStructure(['data' => [
+                'conversation_id', 'message_id', 'user_message', 'ai_response', 'at',
+                'suggestions', 'actions', 'provider' => ['available', 'is_language_model', 'name'],
+            ]])
             ->assertJsonPath('data.conversation_id', (string) $conversation->id)
             ->assertJsonPath('data.user_message', 'Hello, how are you?')
             ->assertJsonPath('data.ai_response', 'Hello! How can I help you today?')
@@ -94,10 +124,105 @@ class AiChatTest extends TestCase
             $response->json('data.message_id'),
         );
 
-        // With nothing earlier, the engine receives exactly what was typed.
+        // With nothing earlier, the engine receives exactly what was typed,
+        // and no context: this customer has not consented to sharing any.
         Http::assertSent(fn (Request $request) => $request->method() === 'POST'
             && $request->url() === self::CHAT
-            && $request->data() === ['message' => 'Hello, how are you?']);
+            && $request->body() === '{"message":"Hello, how are you?","context":{}}');
+    }
+
+    public function test_the_engine_key_is_sent_with_every_request(): void
+    {
+        $this->customer();
+        Http::fake([
+            self::CHAT => Http::response(['model' => 'm', 'reply' => 'Hi.', 'duration_ms' => 1]),
+            self::HEALTH => Http::response(['status' => 'healthy']),
+        ]);
+
+        $this->postJson('/api/v1/ai/chat', ['message' => 'Hello'])->assertOk();
+        $response = $this->getJson('/api/v1/ai/status')->assertOk();
+
+        Http::assertSentCount(2);
+        Http::assertNotSent(fn (Request $request) => ! $request->hasHeader('X-FynnAI-Key', self::KEY));
+
+        // A server-to-server secret: the app never sees it.
+        $this->assertStringNotContainsString(self::KEY, $response->getContent());
+    }
+
+    public function test_the_history_sent_stops_at_its_character_budget(): void
+    {
+        $user = $this->customer();
+        $conversation = $user->conversations()->create(['title' => 'Long']);
+        // About 1,400 characters a turn: four fit in the 6,000 budget, five do not.
+        foreach (range(1, 5) as $turn) {
+            $conversation->messages()->create([
+                'role' => $turn % 2 === 1 ? 'user' : 'assistant',
+                'content' => "Turn {$turn} ".str_repeat('x', 1390),
+            ]);
+        }
+        $this->engineReplies('Noted.');
+
+        $this->postJson('/api/v1/ai/chat', [
+            'message' => 'And now?',
+            'conversation_id' => $conversation->id,
+        ])->assertOk();
+
+        $sent = Http::recorded()[0][0]['message'];
+        $this->assertStringNotContainsString('Turn 1 ', $sent);
+        $this->assertStringContainsString('User: Turn 3 ', $sent);
+        $this->assertStringContainsString('User: Turn 5 ', $sent);
+        $this->assertStringEndsWith('User: And now?', $sent);
+    }
+
+    // --- What the engine may know --------------------------------------------
+
+    public function test_with_ai_memory_consent_the_customers_context_is_sent_beside_the_message(): void
+    {
+        $this->customerWithFigures();
+        $this->grantMemory();
+        $shownToCustomer = $this->getJson('/api/v1/ai/context')->assertOk()->json('data.context');
+        $this->engineReplies('Based on your figures, here is what an EMI would look like.');
+
+        $this->postJson('/api/v1/ai/chat', ['message' => 'Can I afford a home loan?'])->assertOk();
+
+        $sent = Http::recorded()[0][0];
+        // The context travels as its own field; the prompt is what was typed.
+        $this->assertSame('Can I afford a home loan?', $sent['message']);
+        // Exactly what the app shows the customer FynnAI can see.
+        $this->assertSame($shownToCustomer, $sent['context']);
+        $this->assertSame('Rahul', $sent['context']['customer']['first_name']);
+        $this->assertSame(100000, $sent['context']['financial_profile']['monthly_income']);
+        $this->assertSame(20000, $sent['context']['financial_profile']['existing_emi']);
+        $this->assertTrue($sent['context']['memory_allowed']);
+    }
+
+    public function test_without_ai_memory_consent_no_personal_context_is_sent(): void
+    {
+        $this->customerWithFigures();
+        $this->engineReplies('Generally, lenders look at your EMI to income ratio.');
+
+        $this->postJson('/api/v1/ai/chat', ['message' => 'Can I afford a home loan?'])->assertOk();
+
+        // An empty object, not an empty list, so the engine's schema accepts it.
+        $this->assertSame(
+            '{"message":"Can I afford a home loan?","context":{}}',
+            Http::recorded()[0][0]->body(),
+        );
+    }
+
+    public function test_after_ai_memory_consent_is_withdrawn_no_personal_context_is_sent(): void
+    {
+        $this->customerWithFigures();
+        $this->grantMemory();
+        $this->postJson('/api/v1/consents/ai_memory/withdraw')->assertOk();
+        $this->engineReplies('Generally, lenders look at your EMI to income ratio.');
+
+        $this->postJson('/api/v1/ai/chat', ['message' => 'Can I afford a home loan?'])->assertOk();
+
+        $this->assertSame(
+            '{"message":"Can I afford a home loan?","context":{}}',
+            Http::recorded()[0][0]->body(),
+        );
     }
 
     public function test_a_follow_up_sends_the_earlier_turns_with_the_new_message(): void
@@ -170,7 +295,7 @@ class AiChatTest extends TestCase
             'conversation_id' => $conversation->id,
         ])->assertOk();
 
-        Http::assertSent(fn (Request $request) => $request->data() === ['message' => 'Second question']);
+        Http::assertSent(fn (Request $request) => $request->body() === '{"message":"Second question","context":{}}');
     }
 
     public function test_the_existing_messages_endpoint_answers_with_the_engine(): void
@@ -305,6 +430,10 @@ class AiChatTest extends TestCase
             fn () => Http::response(['detail' => 'Internal Server Error at 10.0.0.9'], 500),
             502, AiEngineUnavailable::ENGINE_ERROR, $broken,
         ];
+        yield 'engine refuses the key' => [
+            fn () => Http::response(['detail' => 'Invalid X-FynnAI-Key'], 401),
+            502, AiEngineUnavailable::ENGINE_ERROR, $broken,
+        ];
         yield 'not json' => [
             fn () => Http::response('<html>Bad Gateway 10.0.0.9</html>', 200),
             502, AiEngineUnavailable::INVALID_RESPONSE, $broken,
@@ -353,17 +482,50 @@ class AiChatTest extends TestCase
         $this->assertSame(0, $conversation->messages()->count());
     }
 
-    public function test_an_engine_with_no_address_is_reported_as_not_connected_501(): void
+    public function test_an_engine_refusal_that_quotes_the_request_is_logged_without_it_502(): void
     {
-        config(['services.fastapi.base_url' => null]);
+        $this->customerWithFigures();
+        $this->grantMemory();
+        // FastAPI's validation refusal echoes the rejected input back.
+        Http::fake([self::CHAT => Http::response(['detail' => [[
+            'type' => 'missing',
+            'loc' => ['body', 'message'],
+            'msg' => 'Field required',
+            'input' => ['context' => ['customer' => ['first_name' => 'Rahul', 'city' => 'Pune']]],
+        ]]], 422)]);
+        Log::spy();
+
+        $this->postJson('/api/v1/ai/chat', ['message' => 'My salary is 100000'])
+            ->assertStatus(502)
+            ->assertJsonPath('reason', AiEngineUnavailable::ENGINE_ERROR);
+
+        Log::shouldHaveReceived('warning')->once()->with(
+            'FynnAI engine did not answer: The engine answered 422.',
+            ['reason' => AiEngineUnavailable::ENGINE_ERROR, 'status' => 422],
+        );
+    }
+
+    #[TestWith(['services.fastapi.base_url'])]
+    #[TestWith(['services.fastapi.api_key'])]
+    public function test_an_engine_with_no_address_or_no_key_is_reported_as_not_connected_501(string $setting): void
+    {
+        config([$setting => null]);
         $user = $this->customer();
+        Http::fake([
+            self::CHAT => Http::response(['model' => 'm', 'reply' => 'unused', 'duration_ms' => 1]),
+            self::HEALTH => Http::response(['status' => 'healthy']),
+        ]);
 
         $this->postJson('/api/v1/ai/chat', ['message' => 'Hello'])
             ->assertStatus(501)
             ->assertJsonPath('data.reason', 'ai_provider_not_configured')
             ->assertJsonPath('data.provider.available', false);
+        $this->getJson('/api/v1/ai/status')
+            ->assertOk()
+            ->assertJsonPath('data.online', false);
 
         $this->assertSame(0, $user->conversations()->count());
+        Http::assertNothingSent();
     }
 
     // --- Status -------------------------------------------------------------
