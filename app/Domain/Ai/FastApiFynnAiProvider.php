@@ -12,12 +12,13 @@ use Illuminate\Support\Str;
  * in front of a self-hosted Ollama model.
  *
  * Unlike the deterministic assistant this is a language model, and it says
- * so. It is given the conversation, and — only with the customer's consent
- * — their financial context. Grounding a model in a customer's figures is a
- * decision about where their data goes, so this adapter does not make it:
- * it reads the answer the context builder already took from the consent
- * ledger (ConsentType::AiMemory, "FynnAI grounding its answers in the
- * customer's own figures") and sends the context only when that says yes.
+ * so. It is given the conversation, the customer's first name, and — only
+ * with the customer's consent — their financial context. Grounding a model
+ * in a customer's figures is a decision about where their data goes, so
+ * this adapter does not make it: it reads the answer the context builder
+ * already took from the consent ledger (ConsentType::AiMemory, "FynnAI
+ * grounding its answers in the customer's own figures") and sends the
+ * figures only when that says yes.
  *
  * The context travels as its own field, never folded into the prompt, so
  * the engine can tell what the customer typed from what FynnEdge knows.
@@ -77,16 +78,36 @@ class FastApiFynnAiProvider implements RemoteFynnAiProvider
     /**
      * What of the customer's context may leave for the engine.
      *
-     * All of it with current AI memory consent, and nothing without — not
-     * the figures, not the name, not the goals. `memoryAllowed` is the
-     * consent ledger's answer for the current wording, so a consent never
-     * given, withdrawn, or given under older wording all send nothing.
+     * All of it with current AI memory consent. Without it, only the first
+     * name, so FynnAI can greet the customer by name. The consent covers
+     * FynnAI reading the customer's financial profile, and a name is not a
+     * figure. Everything else stays behind it: figures, goals, score,
+     * applications, documents and memories. `memoryAllowed` is the consent
+     * ledger's answer for the current wording, so a consent never given,
+     * withdrawn, or given under older wording all send the name alone.
+     *
+     * `memory_allowed: false` travels with the name, so the engine knows
+     * it was given a name and nothing else. Without it, a name-only
+     * context would read as a customer with no income and no goals.
      *
      * @return array<string, mixed>
      */
     private function permittedContext(FynnAiContext $context): array
     {
-        return $context->memoryAllowed ? $context->toArray() : [];
+        if ($context->memoryAllowed) {
+            return $context->toArray();
+        }
+
+        $firstName = $context->customer['first_name'] ?? null;
+
+        if (blank($firstName)) {
+            return [];
+        }
+
+        return [
+            'customer' => ['first_name' => $firstName],
+            'memory_allowed' => false,
+        ];
     }
 
     /**

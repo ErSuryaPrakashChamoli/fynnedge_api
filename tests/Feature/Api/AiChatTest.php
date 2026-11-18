@@ -125,7 +125,7 @@ class AiChatTest extends TestCase
         );
 
         // With nothing earlier, the engine receives exactly what was typed,
-        // and no context: this customer has not consented to sharing any.
+        // and no context: this customer has given no name and no consent.
         Http::assertSent(fn (Request $request) => $request->method() === 'POST'
             && $request->url() === self::CHAT
             && $request->body() === '{"message":"Hello, how are you?","context":{}}');
@@ -196,21 +196,36 @@ class AiChatTest extends TestCase
         $this->assertTrue($sent['context']['memory_allowed']);
     }
 
-    public function test_without_ai_memory_consent_no_personal_context_is_sent(): void
+    public function test_without_ai_memory_consent_only_the_first_name_is_sent(): void
     {
         $this->customerWithFigures();
-        $this->engineReplies('Generally, lenders look at your EMI to income ratio.');
+        $this->engineReplies('Hello Rahul! How can I help you today?');
 
-        $this->postJson('/api/v1/ai/chat', ['message' => 'Can I afford a home loan?'])->assertOk();
+        $this->postJson('/api/v1/ai/chat', ['message' => 'Hi'])->assertOk();
 
-        // An empty object, not an empty list, so the engine's schema accepts it.
+        // The name, so FynnAI can greet the customer, and nothing else: no
+        // surname, no city, no figures.
         $this->assertSame(
-            '{"message":"Can I afford a home loan?","context":{}}',
+            '{"message":"Hi","context":{"customer":{"first_name":"Rahul"},"memory_allowed":false}}',
             Http::recorded()[0][0]->body(),
         );
     }
 
-    public function test_after_ai_memory_consent_is_withdrawn_no_personal_context_is_sent(): void
+    public function test_without_ai_memory_consent_or_a_name_the_context_is_empty(): void
+    {
+        $this->customer();
+        $this->engineReplies('Hello! How can I help you today?');
+
+        $this->postJson('/api/v1/ai/chat', ['message' => 'Hi'])->assertOk();
+
+        // An empty object, not an empty list, so the engine's schema accepts it.
+        $this->assertSame(
+            '{"message":"Hi","context":{}}',
+            Http::recorded()[0][0]->body(),
+        );
+    }
+
+    public function test_after_ai_memory_consent_is_withdrawn_only_the_first_name_is_sent(): void
     {
         $this->customerWithFigures();
         $this->grantMemory();
@@ -220,7 +235,7 @@ class AiChatTest extends TestCase
         $this->postJson('/api/v1/ai/chat', ['message' => 'Can I afford a home loan?'])->assertOk();
 
         $this->assertSame(
-            '{"message":"Can I afford a home loan?","context":{}}',
+            '{"message":"Can I afford a home loan?","context":{"customer":{"first_name":"Rahul"},"memory_allowed":false}}',
             Http::recorded()[0][0]->body(),
         );
     }

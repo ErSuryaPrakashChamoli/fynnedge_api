@@ -22,8 +22,8 @@ use Throwable;
  * transport exception.
  *
  * The engine is stateless. POST /ollama/chat takes one `message`, the
- * customer's `context` (empty unless they have consented to it), and an
- * optional `model`, and returns `{model, reply, duration_ms}`. It keeps no
+ * customer's `context` (at most their first name unless they have consented
+ * to more), and an optional `model`, and returns `{model, reply, duration_ms}`. It keeps no
  * conversation, so any history has to travel inside that one message.
  *
  * Every request carries the shared key in the X-FynnAI-Key header. The key
